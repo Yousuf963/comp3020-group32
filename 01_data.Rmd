@@ -1,0 +1,47 @@
+## 2.1 Data Collection
+
+```{r data-setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+load("data/bluesky_raw.RData")          # frozen raw snapshot (collected once)
+posts        <- readRDS("data/posts_clean.rds")
+cleaning_log <- readRDS("data/cleaning_log.rds")
+```
+
+**Source and access.** Posts were collected from Bluesky using the `atrrr` package, which accesses the public Bluesky (AT Protocol) API after authenticating with an app password, following the method used in the COMP3020 labs. We searched for the latest posts matching two related queries, `"cybersecurity"` and `"infosec"`, requesting up to 3,000 posts each with `search_post()`. Data were collected once on `r format(collected_at, "%d %B %Y")` and frozen; every result in this report comes from that single snapshot. The collection script is `scripts/Collect.R` in the repository; the report never calls the API.
+
+**R packages.** `atrrr` (data collection), `tidyverse` (cleaning and wrangling), `knitr` (tables). Later sections use `tm`, `wordcloud` and `igraph`.
+
+**Volume and time window.** `r nrow(posts_raw)` posts were collected, posted between `r format(min(posts_raw$indexed_at), "%d %b")` and `r format(max(posts_raw$indexed_at), "%d %b %Y")` (UTC).
+
+```{r variables-table, echo=FALSE}
+tribble(
+  ~Variable,          ~Description,
+  "id (uri)",         "Unique post identifier",
+  "created_at",       "Time the post was indexed by Bluesky (UTC)",
+  "author",           "Author handle",
+  "text",             "Post text",
+  "query",            "Search query that returned the post",
+  "like_count, repost_count, reply_count, quote_count", "Engagement counts at collection time",
+  "has_link, is_reply, n_words, n_mentions", "Derived post characteristics"
+) %>% kable(caption = "Variables in the cleaned post dataset")
+```
+
+**Cleaning.** Table 2 shows how many posts each step removed. Duplicates arose because some posts matched both queries. Only posts tagged as English were kept, so the text analysis uses one language. To find automated accounts, we flagged every handle containing "bot" (13 accounts) and manually reviewed each Bluesky profile: 9 were confirmed automated accounts (vulnerability alerts, news/RSS feeds and mirror accounts) and removed; 4 were real people or organisations and kept. Finally, posts with fewer than 5 words were removed as too short to analyse.
+
+```{r cleaning-table, echo=FALSE}
+cleaning_log %>% kable(caption = "Posts remaining and removed at each cleaning step")
+```
+
+The final dataset contains **`r nrow(posts)` posts from `r n_distinct(posts$author)` authors**. Notably, the 9 bot accounts wrote `r cleaning_log$removed[4]` of the `r cleaning_log$posts[3]` English posts (`r round(100 * cleaning_log$removed[4] / cleaning_log$posts[3])`%), which motivates the hypothesis test in Section 2.2.
+
+**Follow network.** Following the Module 7 method, we selected a seed user from the topic's authors: among authors who posted at least 3 times (excluding bots) and follow at least 30 accounts, the seed is the one with the most followers (`r seed_user_handle`). We collected the accounts the seed follows (`r length(friends_handles)` direct friends) and up to 50 accounts followed by each friend, giving `r nrow(el_follow)` directed "follows" edges. `r length(failed_friends)` retrievals failed.
+
+**Limitations.**
+
+- *Sample:* search returns the most recent matching posts, so the data cover only about five days and reflect that week's news.
+- *Keyword search:* posts about cybersecurity that do not use either keyword are missed, and some matching posts may be off-topic.
+- *Language filter:* posts not tagged as English were removed, so non-English discussion is excluded.
+- *Bot detection:* bots were identified by handle and manual review only; automated accounts without "bot" in the handle may remain.
+- *Engagement counts* were recorded at collection time, so the newest posts had less time to gather likes.
+- *Network:* the follow network is a two-step sample around one seed with capped limits, not the full Bluesky network. Mentions were too rare (about 3% of posts) to build a mention network.
