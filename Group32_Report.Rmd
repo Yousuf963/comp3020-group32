@@ -27,9 +27,114 @@ knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE, fig.pos="H")
 
 ## 2.1 Data Collection
 
+```{r data-setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+load("data/bluesky_raw.RData")          # frozen raw snapshot (collected once)
+posts        <- readRDS("data/posts_clean.rds")
+cleaning_log <- readRDS("data/cleaning_log.rds")
+```
+
+**Source and access.** Posts were collected from Bluesky using the `atrrr` package, which accesses the public Bluesky (AT Protocol) API after authenticating with an app password, following the method used in the COMP3020 labs. We searched for the latest posts matching two related queries, `"cybersecurity"` and `"infosec"`, requesting up to 3,000 posts each with `search_post()`. Data were collected once on `r format(collected_at, "%d %B %Y")` and frozen; every result in this report comes from that single snapshot. The collection script is `scripts/Collect.R` in the repository; the report never calls the API.
+
+**R packages.** `atrrr` (data collection), `tidyverse` (cleaning and wrangling), `knitr` (tables). Later sections use `tm`, `wordcloud` and `igraph`.
+
+**Volume and time window.** `r nrow(posts_raw)` posts were collected, posted between `r format(min(posts_raw$indexed_at), "%d %b")` and `r format(max(posts_raw$indexed_at), "%d %b %Y")` (UTC).
+
+```{r variables-table, echo=FALSE}
+tribble(
+  ~Variable,          ~Description,
+  "id (uri)",         "Unique post identifier",
+  "created_at",       "Time the post was indexed by Bluesky (UTC)",
+  "author",           "Author handle",
+  "text",             "Post text",
+  "query",            "Search query that returned the post",
+  "like_count, repost_count, reply_count, quote_count", "Engagement counts at collection time",
+  "has_link, is_reply, n_words, n_mentions", "Derived post characteristics"
+) %>% kable(caption = "Variables in the cleaned post dataset")
+```
+
+**Cleaning.** Table 2 shows how many posts each step removed. Duplicates arose because some posts matched both queries. Only posts tagged as English were kept, so the text analysis uses one language. To find automated accounts, we flagged every handle containing "bot" (13 accounts) and manually reviewed each Bluesky profile: 9 were confirmed automated accounts (vulnerability alerts, news/RSS feeds and mirror accounts) and removed; 4 were real people or organisations and kept. Finally, posts with fewer than 5 words were removed as too short to analyse.
+
+```{r cleaning-table, echo=FALSE}
+cleaning_log %>% kable(caption = "Posts remaining and removed at each cleaning step")
+```
+
+The final dataset contains **`r nrow(posts)` posts from `r n_distinct(posts$author)` authors**. Notably, the 9 bot accounts wrote `r cleaning_log$removed[4]` of the `r cleaning_log$posts[3]` English posts (`r round(100 * cleaning_log$removed[4] / cleaning_log$posts[3])`%), which motivates the hypothesis test in Section 2.2.
+
+**Follow network.** Following the Module 7 method, we selected a seed user from the topic's authors: among authors who posted at least 3 times (excluding bots) and follow at least 30 accounts, the seed is the one with the most followers (`r seed_user_handle`). We collected the accounts the seed follows (`r length(friends_handles)` direct friends) and up to 50 accounts followed by each friend, giving `r nrow(el_follow)` directed "follows" edges. `r length(failed_friends)` retrievals failed.
+
+**Limitations.**
+
+- *Sample:* search returns the most recent matching posts, so the data cover only about five days and reflect that week's news.
+- *Keyword search:* posts about cybersecurity that do not use either keyword are missed, and some matching posts may be off-topic.
+- *Language filter:* posts not tagged as English were removed, so non-English discussion is excluded.
+- *Bot detection:* bots were identified by handle and manual review only; automated accounts without "bot" in the handle may remain.
+- *Engagement counts* were recorded at collection time, so the newest posts had less time to gather likes.
+- *Network:* the follow network is a two-step sample around one seed with capped limits, not the full Bluesky network. Mentions were too rare (about 3% of posts) to build a mention network.
 
 ## 2.2 Hypothesis Testing
 
+```{r hyp-setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+load("data/bluesky_raw.RData")
+```
+
+**Research question.** *Are posts from human accounts more likely to receive engagement than posts from automated (bot) accounts?*
+
+Section 2.1 showed that bots produce over half of the English cybersecurity posts. This test asks whether that volume translates into attention from other users.
+
+We use the English posts **before** bot removal, applying the same duplicate, language and length filters as the cleaned data, and label each post by account type.
+
+```{r hyp-data}
+# Same bot list as scripts/Clean.R (13 flagged handles, 4 manually kept as real accounts)
+flagged <- unique(posts_raw$author_handle[str_detect(posts_raw$author_handle, "bot")])
+kept    <- c("ebottcher.bsky.social", "repeatablerobot.bsky.social",
+             "adybot.bsky.social", "progressiverobot.bsky.social")
+bots    <- setdiff(flagged, kept)
+
+hyp <- posts_raw %>%
+  distinct(uri, .keep_all = TRUE) %>%
+  filter(map_lgl(langs, ~ "en" %in% unlist(.x))) %>%
+  mutate(n_words      = str_count(str_squish(text), "\\S+"),
+         account_type = if_else(author_handle %in% bots, "Bot", "Human"),
+         engaged      = if_else(like_count + repost_count + reply_count > 0,
+                                "Engaged", "No engagement")) %>%
+  filter(n_words >= 5)
+
+tab <- table(hyp$account_type, hyp$engaged)
+tab
+round(prop.table(tab, margin = 1), 3)      # proportion engaged within each group
+```
+
+```{r hyp-plot, fig.height=3, fig.width=5, fig.cap="Share of posts receiving any engagement, by account type"}
+hyp %>%
+  count(account_type, engaged) %>%
+  group_by(account_type) %>% mutate(prop = n / sum(n)) %>%
+  filter(engaged == "Engaged") %>%
+  ggplot(aes(account_type, prop)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = NULL, y = "Posts with >= 1 like, repost or reply")
+```
+
+**Hypotheses.**
+
+- H0: account type and receiving engagement are independent.
+- H1: account type and receiving engagement are associated.
+
+**Why this test.** Both variables are categorical (bot/human; engaged/not), so a chi-squared test of independence is appropriate. Engagement counts are heavily skewed (the median post receives 0 likes), so comparing means with a t-test would be misleading; converting to "any engagement" avoids this. The test requires expected counts of at least 5 in every cell, checked below.
+
+```{r hyp-test}
+test <- chisq.test(tab)
+test$expected      # all should be >= 5
+test
+```
+
+**Result and interpretation.** The chi-squared test of independence gave 	$\chi^2 = 547.67$ with 1 degree of freedom and $p < 2.2 \times 10^{-16}$, which is far below $\alpha = 0.05$, so we reject H0 and conclude that account type and receiving engagement are associated. The proportions show the direction of this association: 56.5% of human posts received at least one like, repost or reply, compared with only 14.5% of bot posts, making human posts roughly four times as likely to receive engagement. Combined with Section 2.1, where bots wrote 53% of English cybersecurity posts, this suggests that automated accounts dominate the volume of the conversation while users mostly direct their attention to human accounts. This is an association rather than a causal effect, since engagement also depends on factors such as follower counts and posting time that the test does not control for.
+
+**Limitations.** Posts are not fully independent: a few bot accounts produced many posts each, so the test treats repeated posts from one account as separate observations. Engagement also depends on follower counts and posting time, which this test does not control for, so an association does not show that being a bot *causes* lower engagement.
 
 ## 2.3 Text/Content Analysis and Visualisation
 
@@ -590,7 +695,7 @@ if (has_clusters) {
 - **Snapshot in time.** Follows were collected once (`r format(collected_at, "%d %B %Y")`), and follow relationships change over time.
 - **Account types** come from reading public profile descriptions, which are self-reported and can change.
 
-## 3. Overall Findings
+## 2.6 Overall Findings
 
 ```{r find-setup, include=FALSE}
 # This section recalculates selected summary statistics from the saved project data,
