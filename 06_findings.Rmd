@@ -1,0 +1,173 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## 3 Overall Findings
+
+```{r find-setup, include=FALSE}
+# This section recalculates selected summary statistics from the saved project data,
+# using the same filters as Sections 2.1-2.5. Checks below stop the knit with a clear
+# message if an input is missing or a number no longer matches the earlier sections.
+library(tidyverse)
+library(tidytext)
+library(igraph)
+
+load("data/bluesky_raw.RData")
+needed <- c("posts_raw", "seed_user_handle", "friends_handles")
+missing_obj <- needed[!sapply(needed, exists)]
+if (length(missing_obj) > 0)
+  stop("data/bluesky_raw.RData is missing: ", paste(missing_obj, collapse = ", "))
+
+posts        <- readRDS("data/posts_clean.rds")
+cleaning_log <- readRDS("data/cleaning_log.rds")
+follow       <- as.data.frame(readRDS("data/follow_edges.rds"), stringsAsFactors = FALSE)
+stopifnot(all(c("id", "author", "text", "like_count") %in% names(posts)),
+          all(c("step", "posts", "removed") %in% names(cleaning_log)),
+          all(c("from", "to") %in% names(follow)))
+
+# ---- Section 2.1: volume and bots (rows picked by name, not position) ----
+log_row    <- function(s) cleaning_log[cleaning_log$step == s, ]
+n_english  <- log_row("After English-only filter")$posts
+n_bot_post <- log_row("After removing bot accounts")$removed
+stopifnot(length(n_english) == 1, length(n_bot_post) == 1)
+bot_share  <- round(100 * n_bot_post / n_english)
+top10_authors <- names(head(sort(table(posts$author), decreasing = TRUE), 10))
+top10_share   <- round(100 * mean(posts$author %in% top10_authors))
+
+# ---- Section 2.2: identical filters and bot list to 02_hypothesis.Rmd ----
+flagged <- unique(posts_raw$author_handle[str_detect(posts_raw$author_handle, "bot")])
+kept    <- c("ebottcher.bsky.social", "repeatablerobot.bsky.social",
+             "adybot.bsky.social", "progressiverobot.bsky.social")
+bots    <- setdiff(flagged, kept)
+hyp <- posts_raw %>%
+  distinct(uri, .keep_all = TRUE) %>%                              # same deduplication
+  filter(map_lgl(langs, ~ "en" %in% unlist(.x))) %>%               # same English filter
+  mutate(n_words      = str_count(str_squish(text), "\\S+"),
+         account_type = if_else(author_handle %in% bots, "Bot", "Human"),   # same bot list
+         engaged      = if_else(like_count + repost_count + reply_count > 0,
+                                "Engaged", "No engagement")) %>%
+  filter(n_words >= 5)                                             # same minimum length
+hyp_tab  <- table(hyp$account_type, hyp$engaged)
+hyp_test <- chisq.test(hyp_tab)
+pct_eng  <- round(100 * prop.table(hyp_tab, 1)[, "Engaged"], 1)
+ratio    <- round(pct_eng[["Human"]] / pct_eng[["Bot"]], 1)
+# Consistency check with Section 2.1: the human posts in the test must be exactly
+# the cleaned posts (English, non-bot, at least 5 words)
+if (sum(hyp_tab["Human", ]) != nrow(posts))
+  stop("Hypothesis-test data no longer match posts_clean.rds: check 02_hypothesis.Rmd and Clean.R")
+
+# ---- Section 2.3: text (reuses Section 2.3's `words` object when knitted in main.Rmd) ----
+if (exists("words") && is.data.frame(words) && all(c("id", "word") %in% names(words))) {
+  words_used <- words
+  words_source <- "Section 2.3"
+} else {
+  # Same tokenising method as the project guide (Step 6)
+  my_stop <- tibble(word = c("cybersecurity", "https", "http", "amp", "www"))
+  words_used <- posts %>%
+    select(id, text) %>%
+    mutate(text = str_remove_all(text, "https?://\\S+")) %>%
+    unnest_tokens(word, text) %>%
+    anti_join(stop_words, by = "word") %>%
+    anti_join(my_stop, by = "word") %>%
+    filter(!str_detect(word, "^[0-9]+$"))
+  words_source <- "recomputed"
+}
+word_counts <- words_used %>% count(word, sort = TRUE)
+top_words   <- head(word_counts, 10)
+
+# Which of the 20 most frequent words come mainly (> 50%) from the ten most active accounts?
+feed_words <- words_used %>%
+  left_join(select(posts, id, author), by = "id") %>%
+  filter(word %in% head(word_counts$word, 20)) %>%
+  group_by(word) %>%
+  summarise(n = n(), feed_pct = round(100 * mean(author %in% top10_authors))) %>%
+  filter(feed_pct > 50) %>% arrange(desc(n))
+top_word_human <- words_used %>%
+  left_join(select(posts, id, author), by = "id") %>%
+  filter(!author %in% top10_authors) %>%
+  count(word, sort = TRUE) %>% head(5)
+
+# Simple theme check on the 20 most frequent words
+themes <- list(
+  "ransomware and breaches" = c("ransomware", "ransom", "breach", "leak", "attack", "hackers"),
+  "vulnerabilities"         = c("cve", "vulnerability", "exploit", "patch", "critical"),
+  "AI"                      = c("ai", "openai", "llm", "agents", "chatgpt"),
+  "threat intelligence"     = c("cti", "threatintelligence", "threat", "intel")
+)
+top20 <- head(word_counts$word, 20)
+themes_found <- names(themes)[sapply(themes, function(t) any(t %in% top20))]
+
+# ---- Section 2.4: clusters (validated before use) ----
+clustered_file <- "data/posts_clustered.rds"
+has_clusters <- FALSE
+if (file.exists(clustered_file)) {
+  pc <- tryCatch(readRDS(clustered_file), error = function(e) NULL)
+  has_clusters <- is.data.frame(pc) && all(c("id", "author", "cluster") %in% names(pc)) &&
+    sum(!is.na(pc$cluster)) > 0
+}
+if (has_clusters) {
+  pc <- pc %>% filter(!is.na(cluster)) %>% mutate(cluster = as.character(cluster))
+  cl_sizes <- pc %>% count(cluster, sort = TRUE) %>% mutate(pct = round(100 * n / sum(n)))
+  cl_words <- words_used %>%
+    inner_join(select(pc, id, cluster), by = "id") %>%
+    count(cluster, word, sort = TRUE) %>%
+    group_by(cluster) %>% slice_head(n = 3) %>%
+    summarise(top = paste(word, collapse = ", "))
+  cl_feed <- pc %>% group_by(cluster) %>%
+    summarise(feed_pct = round(100 * mean(author %in% top10_authors))) %>% arrange(desc(feed_pct))
+  cl_desc <- cl_sizes %>% left_join(cl_words, by = "cluster") %>%
+    mutate(txt = paste0("**", cluster, "** (", n, " posts, ", pct, "%; top words: ", top, ")"))
+} else {
+  warning("data/posts_clustered.rds is missing or has no id/author/cluster columns: RQ2 cannot be reported.")
+}
+
+rq2_text <- if (has_clusters) {
+  paste0("The clustering in Section 2.4 grouped the posts into ", nrow(cl_sizes), " clusters: ",
+         paste(cl_desc$txt, collapse = "; "), ". The largest cluster holds ", cl_sizes$pct[1], "% of posts.")
+} else {
+  paste0("**Cluster results are not available, because data/posts_clustered.rds is missing or does not ",
+         "contain id, author and cluster columns. This paragraph is generated automatically once that ",
+         "file is in the repository.**")
+}
+
+# ---- Section 2.5: network ----
+g <- graph_from_data_frame(follow, directed = TRUE)
+net_authors   <- intersect(V(g)$name, setdiff(unique(posts$author), "handle.invalid"))
+net_posts     <- sum(posts$author %in% net_authors)        # posts table has one row per post
+stopifnot(!anyDuplicated(posts$id))
+seed_in       <- degree(g, seed_user_handle, mode = "in")
+likes_net     <- median(posts$like_count[posts$author %in% net_authors])
+likes_other   <- median(posts$like_count[!posts$author %in% net_authors])
+
+github_url <- "https://github.com/Yousuf963/comp3020-group32"
+fmt <- function(x) format(x, big.mark = ",")
+```
+
+This section answers the four research questions and then shows how the answers fit together. Engagement means at least one like, repost or reply, measured by the variables `like_count`, `repost_count` and `reply_count` at collection time.
+
+**RQ1: Text analysis (Section 2.3).** *What topics and words dominate cybersecurity posts on Bluesky?*
+`r if (words_source == "Section 2.3") "Using the word counts from Section 2.3, the ten most frequent words are " else "The ten most frequent words, after removing stop words, links, numbers and the search term cybersecurity, are "``r paste0(top_words$word, " (", top_words$n, ")", collapse = ", ")`. `r if (length(themes_found) > 0) paste0("The 20 most frequent words point to ", if (length(themes_found) == 1) themes_found else paste(paste(head(themes_found, -1), collapse = ", "), "and", tail(themes_found, 1)), " among the main themes.") else ""` `r if (nrow(feed_words) > 0) paste0("Several frequent words come mainly from the ten most active accounts rather than from the wider discussion. More than half of all uses of ", paste0("\"", head(feed_words$word, 5), "\"", collapse = ", "), " appear in their posts, so word frequencies are shaped strongly by a few high-volume accounts. ") else ""
+`
+
+**RQ3: Hypothesis test (Section 2.2).** *Are posts from human accounts more likely to receive engagement than posts from automated (bot) accounts?*
+Yes, in this sample. A chi-squared test of independence rejected the null hypothesis that account type and engagement are independent ($\chi^2$ = `r round(unname(hyp_test$statistic), 2)`, df = `r unname(hyp_test$parameter)`, p `r if (hyp_test$p.value < 0.001) "< 0.001" else paste("=", signif(hyp_test$p.value, 2))`). `r pct_eng[["Human"]]`% of human-authored posts received at least one like, repost or reply, compared with `r pct_eng[["Bot"]]`% of bot posts, so human-authored posts had an engagement rate about `r ratio` times higher. Bots wrote `r bot_share`% of the `r fmt(n_english)` English posts collected. This is an association, not a causal effect, because the test does not control for follower counts or posting time.
+
+**RQ4: Network analysis (Section 2.5).** *In the follow network around the most-followed active author in the discussion, which accounts are most central, and is it a cybersecurity community?*
+The seed, `r seed_user_handle`, is the most central account, and `r seed_in` of its `r length(friends_handles)` friends follow it back. Apart from the seed, the most central accounts we reviewed are individuals working in software, AI and academia rather than news outlets or companies. The sampled follow network does not appear to be predominantly cybersecurity-focused. Only `r length(net_authors)` of its `r fmt(vcount(g))` accounts (`r round(100 * length(net_authors) / vcount(g), 1)`%) posted about cybersecurity in our sample. Because mentions were too rare to build the mention network suggested in the guide, this answer is about follow relationships.
+
+### How the analyses connect
+
+Taken together, the four analyses describe a cybersecurity discussion on Bluesky that is high-volume but substantially automated. Section 2.1 found that bots wrote `r bot_share`% of the English posts. Even after they were removed, the ten most active accounts, mostly alert and news feeds, still wrote `r top10_share`% of the cleaned posts. The text analysis shows the same pattern, since `r if (nrow(feed_words) > 0) paste0(nrow(feed_words), " of the 20 most frequent words come mainly from these accounts")  else "the most frequent words are shared across many accounts"`. `r if (has_clusters) paste0("In the clustering, cluster ", cl_feed$cluster[1], " has the highest share of posts from these accounts (", cl_feed$feed_pct[1], "%) and cluster ", tail(cl_feed$cluster, 1), " the lowest (", tail(cl_feed$feed_pct, 1), "%)", if (cl_feed$feed_pct[1] - tail(cl_feed$feed_pct, 1) >= 20) ", so the clusters partly separate feed-style content from more conversational posts." else ", so feed-style posts are spread across clusters rather than isolated in one.") else ""` The hypothesis test shows that bot posts attracted less engagement: human-authored posts were about `r ratio` times as likely to be engaged with. The network analysis adds that the most-followed active author we sampled sits in a general technology and AI community. Its network members wrote only `r net_posts` of the `r fmt(nrow(posts))` posts, but those posts had a median of `r likes_net` likes compared with `r likes_other` for other posts. **Main conclusion:** the results suggest that, in this sample, automated accounts contributed substantially to the volume of cybersecurity posts on Bluesky. Human-authored posts were more likely to receive engagement, and the most-followed human voice we sampled belongs to a network that extends beyond the security field.
+
+### Overall limitations
+
+- **Short, keyword-based sample.** The data cover about five days of posts matching "cybersecurity" or "infosec". The results reflect that week's news, and posts on the topic that use neither keyword are missed.
+- **English only.** Posts not tagged as English were removed, and some posts in other languages carry an English tag.
+- **Imperfect bot detection.** Bots were identified by handle and manual review. Automated feeds without "bot" in their name remain in the cleaned data and affect the word counts and engagement results.
+- **Engagement at collection time.** Newer posts had less time to gather likes, reposts and replies.
+- **One-seed follow network.** The network is a two-step sample around a single account with capped follow lists. It shows who follows whom, not who talks to whom.
+
+### Reproducibility
+
+All code and data are in the project repository: `r github_url`. The data were collected once (`scripts/Collect.R`), cleaned once (`scripts/Clean.R`) and saved. Every section of this report loads the same saved files, and this section recalculates its summary statistics from them.

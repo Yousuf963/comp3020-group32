@@ -1,0 +1,302 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+## 2.5 Network Analysis
+
+```{r net-setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+library(igraph)
+set.seed(3020)
+
+load("data/bluesky_raw.RData")                   # seed_user_handle, friends_handles, failed_friends, collected_at
+posts      <- readRDS("data/posts_clean.rds")    # cleaned cybersecurity posts (Section 2.1)
+edges_raw  <- readRDS("data/follow_edges.rds")   # one row = "from follows to"
+
+# Cluster labels from Section 2.4, used only if that file has been produced
+clustered_file <- "data/posts_clustered.rds"
+has_clusters <- file.exists(clustered_file) &&
+  "cluster" %in% names(readRDS(clustered_file))
+
+# Tables: floating LaTeX tables in the PDF (so they never split across pages),
+# plain tables when knitted to HTML
+ktab <- function(x, ...) {
+  if (knitr::is_latex_output()) kable(x, format = "latex", booktabs = FALSE, linesep = "", ...)
+  else kable(x, ...)
+}
+```
+
+**Research question.** *In the follow network around the most-followed active author in the cybersecurity discussion, which accounts are most central, what kind of accounts are they, and does this network belong to the cybersecurity community?*
+
+### Why a follow network rather than a mention network
+
+The project guide suggested a weighted mention network, in which an edge A → B means that A mentioned B. **This section deliberately deviates from that design**, because our data cannot support a mention network. Only `r sum(posts$n_mentions > 0)` of the `r format(nrow(posts), big.mark = ",")` cleaned posts (`r round(100 * mean(posts$n_mentions > 0), 1)`%) contain a mention, and they contain `r sum(posts$n_mentions)` mentions in total. A mention network would therefore have at most `r sum(posts$n_mentions)` edges spread across a few dozen posts. It would be too small and fragmented to measure centrality in a meaningful way. Bluesky also stores mentions as account IDs (DIDs) rather than handles, so the cleaned data keeps only the mention count. We therefore follow the Module 7 seed-user method and analyse a **follow network**, which the API returns directly. The two networks answer different questions. A mention network shows who talks to whom in cybersecurity posts. A follow network shows whose content an account has chosen to receive. All centrality results below are therefore about follow relationships, not about mention-based conversation.
+
+### Building the network
+
+The seed is `r seed_user_handle`, the author with the most followers among authors who posted about the topic at least three times. We collected the `r length(friends_handles)` accounts the seed follows (its *friends*) and then the accounts each friend follows. `r length(failed_friends)` friend retrievals failed. All relationships come from the Bluesky API, so none are inferred by us.
+
+- **Nodes** are Bluesky accounts.
+- **Edges** are follow relationships. An edge A → B means "A follows B".
+- The graph is **directed** because following is one-way: A can follow B without B following A.
+- The graph is **unweighted** because a follow either exists or does not. Unlike a mention, it has no count attached to it.
+
+```{r net-build}
+edges <- as.data.frame(edges_raw, stringsAsFactors = FALSE)
+g <- graph_from_data_frame(edges, directed = TRUE)
+
+# Role of each account in the sample
+V(g)$role <- case_when(
+  V(g)$name == seed_user_handle       ~ "Seed",
+  V(g)$name %in% friends_handles      ~ "Friend (followed by seed)",
+  TRUE                                ~ "Friend of friend"
+)
+
+# Link to the post data: did this account post about cybersecurity in our sample?
+authors <- setdiff(unique(posts$author), "handle.invalid")   # unresolved handle, not a real account
+V(g)$cyber_author <- V(g)$name %in% authors
+```
+
+### Network properties
+
+```{r net-properties}
+comp_weak   <- components(g, mode = "weak")
+comp_strong <- components(g, mode = "strong")
+tot_deg     <- degree(g, mode = "all")
+out_deg     <- degree(g, mode = "out")
+in_deg      <- degree(g, mode = "in")
+
+# Largest weakly connected component
+gc <- induced_subgraph(g, comp_weak$membership == which.max(comp_weak$csize))
+```
+
+```{r net-properties-table, echo=FALSE}
+props <- tibble(
+  Property = c("Nodes (accounts)", "Edges (follows)", "Density",
+               "Weakly connected components", "Largest weakly connected component (nodes)",
+               "Strongly connected components", "Largest strongly connected component (nodes)",
+               "Reciprocity (share of follows returned)",
+               "Mean total degree", "Diameter (longest shortest path, directed)"),
+  Value = c(format(vcount(g), big.mark = ","), format(ecount(g), big.mark = ","),
+            format(signif(edge_density(g), 2), scientific = FALSE),
+            comp_weak$no, format(vcount(gc), big.mark = ","),
+            format(comp_strong$no, big.mark = ","), max(comp_strong$csize),
+            round(reciprocity(g), 3),
+            round(mean(tot_deg), 2), diameter(g, directed = TRUE, unconnected = TRUE))
+)
+ktab(props, caption = "Properties of the follow network")
+```
+
+The network has `r format(vcount(g), big.mark = ",")` accounts and `r format(ecount(g), big.mark = ",")` follow edges. Its density is `r format(signif(edge_density(g), 2), scientific = FALSE)`, which means only a tiny fraction of the possible connections exist. This is typical of social networks: each account follows only a handful of the thousands of others in the sample. `r if (comp_weak$no == 1) paste0("Ignoring direction, the network forms a single weakly connected component, so the largest weakly connected component contains all ", format(vcount(gc), big.mark = ","), " accounts. This is expected from the collection method, because every account was reached from the seed.") else paste0("Ignoring direction, the network splits into ", comp_weak$no, " weakly connected components, and the largest contains ", format(vcount(gc), big.mark = ","), " accounts (", round(100 * vcount(gc) / vcount(g)), "%).")` Once direction is taken into account, the network is far less connected: there are `r format(comp_strong$no, big.mark = ",")` strongly connected components, and the largest has only `r max(comp_strong$csize)` accounts. Only `r round(100 * reciprocity(g), 1)`% of follows are returned, so attention in this network flows mostly one way.
+
+```{r net-degree, echo=FALSE, fig.height=3, fig.width=7, fig.cap="Degree distributions of the follow network: total degree (left) and in-degree (right). Count axis on a log scale"}
+bind_rows(
+  tibble(measure = "Total degree (in + out)", degree = tot_deg),
+  tibble(measure = "In-degree (followed by sampled accounts)", degree = in_deg)
+) %>%
+  mutate(measure = factor(measure, levels = c("Total degree (in + out)",
+                                              "In-degree (followed by sampled accounts)"))) %>%
+  count(measure, degree) %>%
+  ggplot(aes(degree, n)) +
+  geom_col(width = 0.9) +
+  scale_y_log10() +
+  facet_wrap(~ measure, scales = "free_x") +
+  labs(x = "Degree", y = "Number of accounts (log scale)")
+```
+
+Both distributions are highly skewed. In the **total-degree** distribution, `r format(sum(tot_deg == 1), big.mark = ",")` accounts (`r round(100 * mean(tot_deg == 1))`%) have a degree of 1. The highest total degrees all belong to the seed and its friends (median `r median(tot_deg[V(g)$role != "Friend of friend"])`, maximum `r max(tot_deg)`). Their high degree mainly reflects the follow lists we collected, because only the seed and its friends have outgoing edges. The API returned between `r min(out_deg[out_deg > 0])` and `r max(out_deg)` follows per friend (median `r median(out_deg[V(g)$role == "Friend (followed by seed)"])`). The **in-degree** distribution is not affected by this collection cap, so it is the better measure of popularity. `r format(sum(in_deg == 1), big.mark = ",")` accounts (`r round(100 * mean(in_deg == 1))`%) are followed by only one sampled account, while a few are followed by many. This long-tailed pattern means a small number of accounts act as hubs that many of the seed's friends choose to follow.
+
+### Centrality
+
+We use two centrality measures that answer different questions:
+
+- **In-degree**: how many sampled accounts follow this account. A high in-degree means the account is popular or seen as worth following within the seed's community.
+- **Betweenness**: how many shortest paths between other accounts pass through this account. A high betweenness means the account is a *bridge* that connects parts of the network that would otherwise be far apart.
+
+```{r net-centrality}
+cent <- tibble(
+  account      = V(g)$name,
+  role         = V(g)$role,
+  in_degree    = in_deg,
+  betweenness  = round(betweenness(g, directed = TRUE)),
+  posted       = V(g)$cyber_author
+)
+
+top_in  <- cent %>% arrange(desc(in_degree), desc(betweenness), account) %>% slice_head(n = 10)
+top_btw <- cent %>% arrange(desc(betweenness), account) %>% slice_head(n = 10)
+```
+
+```{r net-centrality-tables, echo=FALSE}
+short_role <- c("Seed" = "Seed", "Friend (followed by seed)" = "Friend",
+                "Friend of friend" = "Friend of friend")
+show_tab <- function(d) d %>%
+  mutate(role = short_role[role], betweenness = format(betweenness, big.mark = ",")) %>%
+  select(account, role, `in-degree` = in_degree, betweenness, `posted?` = posted)
+
+ktab(show_tab(top_in),  caption = "Top 10 accounts by in-degree", align = "llrrl")
+```
+
+```{r net-centrality-table-btw, echo=FALSE}
+ktab(show_tab(top_btw), caption = "Top 10 accounts by betweenness", align = "llrrl")
+```
+
+```{r net-top5, echo=FALSE}
+# Account types: assigned by reading each account's public Bluesky profile
+# description (checked 9 Oct 2026). Accounts not reviewed show "Not reviewed".
+account_types <- tribble(
+  ~account,                     ~type,        ~profile_says,
+  "sifu.tweety.fish",           "Individual", "Ex-cDc hacker, ML PhD, writer",
+  "regimecpa.bsky.social",      "Individual", "Accountant, satire",
+  "philpax.me",                 "Individual", "Software engineer",
+  "theophite.bsky.social",      "Individual", "Humour account",
+  "segyges.bsky.social",        "Individual", "AI newsletter writer",
+  "daniloc.xyz",                "Individual", "Technologist",
+  "pfrazee.com",                "Individual", "Bluesky CTO",
+  "emilymoin.com",              "Individual", "Physician, ethicist",
+  "jefferyharrell.bsky.social", "Individual", "Tech hobbyist",
+  "mjcrockett.bsky.social",     "Individual", "Academic (psychology)"
+)
+
+top5 <- bind_rows(top_in %>% slice_head(n = 5), top_btw %>% slice_head(n = 5)) %>%
+  distinct(account, .keep_all = TRUE) %>%
+  left_join(account_types, by = "account") %>%
+  mutate(type = replace_na(type, "Not reviewed"),
+         profile_says = replace_na(profile_says, "")) %>%
+  select(account, role, in_degree, betweenness, type, profile_says)
+
+top5 %>%
+  mutate(role = short_role[role], betweenness = format(betweenness, big.mark = ",")) %>%
+  select(account, role, `in-deg.` = in_degree, betw. = betweenness, type, `profile says` = profile_says) %>%
+  ktab(caption = "Who are the most central accounts? (top 5 by each measure)", align = "llrrll")
+```
+
+```{r net-facts, include=FALSE}
+# Facts used in the interpretation below, all computed (nothing assumed)
+seed_row        <- cent %>% filter(account == seed_user_handle)
+seed_rank_in    <- min(which(arrange(cent, desc(in_degree))$in_degree == seed_row$in_degree))
+seed_rank_btw   <- which(arrange(cent, desc(betweenness))$account == seed_user_handle)
+others_in       <- top_in %>% filter(account != seed_user_handle) %>% slice_head(n = 5)
+others_btw      <- top_btw %>% filter(account != seed_user_handle)
+n_individual    <- sum(top5$type == "Individual")
+
+# Betweenness leaders after the seed: how many accounts can be reached ONLY through them?
+only_follower <- edges %>% filter(to %in% cent$account[cent$in_degree == 1]) %>% count(from, name = "unique_reach")
+
+both_high <- intersect(others_in$account, others_btw$account[1:5])
+btw3 <- others_btw %>% filter(!account %in% both_high) %>% slice_head(n = 3) %>%
+  left_join(only_follower, by = c("account" = "from")) %>%
+  mutate(out_degree = out_deg[account], unique_reach = replace_na(unique_reach, 0),
+         label = paste0(account, " (betweenness ", format(betweenness, big.mark = ","),
+                        ", in-degree ", in_degree, ", follows ", out_degree,
+                        " sampled accounts, ", unique_reach, " of which no other sampled account follows)"))
+
+btw_all_friends <- all(others_btw$role == "Friend (followed by seed)")
+```
+
+**Interpretation.** The seed, `r seed_user_handle`, ranks `r ifelse(seed_rank_in == 1, "first", paste0("number ", seed_rank_in))` by in-degree (`r seed_row$in_degree`) and `r ifelse(seed_rank_btw == 1, "first", paste0("number ", seed_rank_btw))` by betweenness (`r format(seed_row$betweenness, big.mark = ",")`). Its in-degree means that `r seed_row$in_degree` of its `r length(friends_handles)` friends follow it back. Part of its centrality comes from the sampling design, because every account in the network was reached through the seed. Apart from the seed, the most followed accounts are `r paste(others_in$account, collapse = ", ")` (in-degree `r paste(others_in$in_degree, collapse = ", ")`). These are accounts that several of the seed's friends independently chose to follow, which makes them shared reference points in this community. Of the `r nrow(top5)` accounts in the top-5 table, `r n_individual` are individuals according to their public profiles`r if (n_individual == nrow(top5)) ", and none are news outlets or companies" else ""`. They are mainly software, AI and academic voices. Bluesky's chief technology officer (`pfrazee.com`) is also among the most followed accounts, with an in-degree of `r cent$in_degree[cent$account == "pfrazee.com"]`. `r if (btw_all_friends) "After the seed, every account in the betweenness top 10 is one of the seed's friends." else "After the seed, the betweenness top 10 mixes friends of the seed with other accounts."`
+
+**Betweenness leaders.** `r if (length(both_high) > 0) paste0(paste(both_high, collapse = ", "), " is the only account apart from the seed that ranks in the top five on both measures, so it is both widely followed and a bridge. ") else "No account apart from the seed ranks in the top five on both measures, so popularity and bridging are held by different accounts. "`Among the remaining accounts, the highest betweenness belongs to `r paste(btw3$label, collapse = "; ")`. These accounts have low in-degree, so few accounts in the sample follow them, and they are not popular in the in-degree sense. Their betweenness comes from their position instead. Each one is the only route from the seed to a large set of accounts that no other sampled account follows, so removing any of them would cut those accounts off from the rest of the network. By their public profiles they are: `r paste(tolower(coalesce(account_types$profile_says[match(btw3$account, account_types$account)], "not reviewed")), collapse = "; ")`. They therefore connect the seed's circle to audiences outside security rather than to security communities.
+
+Betweenness must be read with care here. Only the seed and its friends have outgoing edges, so only these `r sum(cent$betweenness > 0)` accounts can lie on a path between other accounts. Betweenness therefore ranks bridges *within the sample*, not across Bluesky as a whole.
+
+### Visualising the network
+
+```{r net-plot-helpers, include=FALSE}
+role_col <- c("Seed" = "red", "Friend (followed by seed)" = "orange",
+              "Friend of friend" = "grey70")
+node_col   <- function(gr) ifelse(V(gr)$role != "Seed" & V(gr)$cyber_author, "blue", role_col[V(gr)$role])
+node_shape <- function(gr) ifelse(V(gr)$role != "Seed" & V(gr)$cyber_author, "square", "circle")
+add_legend <- function() legend("bottomleft", bty = "n", cex = 0.7, pch = c(19, 19, 19, 15),
+  col = c("red", "orange", "grey70", "blue"),
+  legend = c("Seed", "Friend (followed by seed)", "Friend of friend", "Posted about cybersecurity"))
+```
+
+```{r net-full, echo=FALSE, fig.height=5, fig.width=6, fig.cap="Largest weakly connected component of the follow network (here, the full network). Red = seed, orange = the seed's friends, grey = friends of friends, blue squares = other accounts that posted about cybersecurity in our data"}
+par(mar = c(0, 0, 0, 0))
+set.seed(3020)
+plot(gc, layout = layout_with_fr(gc),
+     vertex.label = NA,
+     vertex.size  = case_when(V(gc)$role == "Seed" ~ 5, V(gc)$cyber_author ~ 3,
+                              V(gc)$role == "Friend of friend" ~ 0.8, TRUE ~ 2.5),
+     vertex.color = node_col(gc), vertex.shape = node_shape(gc),
+     vertex.frame.color = NA,
+     edge.arrow.size = 0, edge.color = adjustcolor("grey50", 0.3))
+add_legend()
+```
+
+The figure above shows the largest weakly connected component. `r if (comp_weak$no == 1) "Because the network has only one component, this is the whole network." else "The smaller components are not shown."` It has a star-like structure: the seed sits at the centre, and each friend has its own "fan" of followed accounts. Fans overlap only where friends follow the same accounts. With `r format(vcount(gc), big.mark = ",")` nodes, the graph is too dense to read account names, so we also plot a subgraph.
+
+**Subgraph choice.** Following the project guide, we take the **50 accounts with the highest total degree** in the largest weakly connected component, together with the edges among them. At 50 nodes the subgraph is small enough to label. Total degree here mostly measures how many follows we *collected* for an account, so this subgraph highlights the sampled follow activity around the seed. It does not necessarily show the community's most influential accounts. Those are better identified by in-degree (see the in-degree table above).
+
+```{r net-sub, echo=FALSE, fig.height=6, fig.width=7, fig.cap="Subgraph of the 50 accounts with the highest total degree in the largest weakly connected component. Node size = in-degree within the full network; red = seed, orange = the seed's friends"}
+deg_gc  <- degree(gc, mode = "all")
+top50_v <- order(-deg_gc, V(gc)$name)[1:min(50, vcount(gc))]   # ties broken alphabetically
+sub     <- induced_subgraph(gc, top50_v)
+sub_roles <- table(factor(V(sub)$role, levels = names(role_col)))
+
+label_set <- union(top_in$account[1:5], top_btw$account[1:5])
+
+par(mar = c(0, 0, 0, 0))
+set.seed(3020)
+plot(sub, layout = layout_with_fr(sub),
+     vertex.size  = 4 + 2 * sqrt(in_deg[V(sub)$name]),
+     vertex.color = node_col(sub), vertex.shape = node_shape(sub),
+     vertex.frame.color = "white",
+     vertex.label = ifelse(V(sub)$name %in% label_set, V(sub)$name, NA),
+     vertex.label.cex = 0.75, vertex.label.color = "black",
+     vertex.label.dist = 1.1, vertex.label.degree = -pi/2,
+     edge.arrow.size = 0.2, edge.color = adjustcolor("grey40", 0.5))
+add_legend()
+```
+
+The subgraph contains `r if (sub_roles[["Seed"]] == 1) "the seed" else "no seed"`, `r sub_roles[["Friend (followed by seed)"]]` of its friends and `r sub_roles[["Friend of friend"]]` friends of friends, joined by `r ecount(sub)` edges. `r if (sub_roles[["Friend of friend"]] == 0) "Total degree is dominated by the follow lists we collected, so the 50 highest-degree accounts are all accounts whose follows were sampled, and the commonly followed hubs identified by in-degree do not appear here." else "Total degree is dominated by the follow lists we collected, so most of the highest-degree accounts are accounts whose follows were sampled."` Of the subgraph's `r ecount(sub)` edges, `r sum(head_of(sub, E(sub))$name != seed_user_handle & tail_of(sub, E(sub))$name == seed_user_handle)` run from the seed to its friends and `r sum(head_of(sub, E(sub))$name == seed_user_handle)` run from friends back to the seed. There are only `r sum(edges$from %in% friends_handles & edges$to %in% friends_handles)` follow edges among the `r length(friends_handles)` friends themselves, so they are only loosely tied to one another and are held together mainly through the seed.
+
+### Link to the other analyses
+
+```{r net-link}
+net_authors <- intersect(V(g)$name, authors)
+
+link_tab <- posts %>%
+  mutate(in_network = author %in% net_authors) %>%
+  group_by(in_network) %>%
+  summarise(authors = n_distinct(author), posts = n(),
+            median_likes = median(like_count), mean_likes = round(mean(like_count), 1))
+ktab(link_tab, caption = "Cybersecurity posts by authors inside vs outside the follow network")
+```
+
+Only `r length(net_authors)` of the `r format(vcount(g), big.mark = ",")` accounts in the network (`r round(100 * length(net_authors) / vcount(g), 1)`%) wrote any of the `r format(nrow(posts), big.mark = ",")` cybersecurity posts in our sample. The seed's profile describes a former member of the hacker group cDc and an ML researcher, but the accounts it and its friends follow are mostly general technology, AI and academic voices rather than a cybersecurity community. Posts from these `r length(net_authors)` network members receive more engagement than other posts (median `r link_tab$median_likes[link_tab$in_network]` vs `r link_tab$median_likes[!link_tab$in_network]` likes). These are only `r sum(link_tab$posts[link_tab$in_network])` posts and include the seed's own widely liked posts, so this is a descriptive comparison, not a test. It is consistent with Section 2.2, where human accounts were far more likely to be engaged with than bots.
+
+```{r net-clusters, echo=has_clusters}
+# Most common cluster (Section 2.4) for each network account that posted.
+# Runs only when data/posts_clustered.rds exists; otherwise it does nothing.
+if (has_clusters) {
+  net_clusters <- readRDS(clustered_file) %>%
+    filter(author %in% net_authors, !is.na(cluster)) %>%
+    count(author, cluster) %>%
+    group_by(author) %>%
+    slice_max(n, n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    rename(account = author, main_cluster = cluster, posts_in_cluster = n)
+
+  ktab(net_clusters, caption = "Most common Section 2.4 cluster for network accounts that posted about cybersecurity")
+}
+```
+
+`r if (has_clusters) paste0("The table above links the network to the clustering in Section 2.4 by giving each posting network account its most common cluster. ", n_distinct(net_clusters$main_cluster), " different cluster(s) appear among these ", nrow(net_clusters), " accounts. The guide suggested colouring the network nodes by cluster, but cluster labels exist only for accounts that posted, which is ", length(net_authors), " of ", format(vcount(g), big.mark = ","), " nodes. Colouring the plots by cluster would leave more than 99% of nodes uncoloured, so we report this link as a table instead. This is a documented deviation from the guide.") else paste0("The guide suggested colouring network nodes by their most common cluster from Section 2.4. Cluster labels can only exist for accounts that posted, which is ", length(net_authors), " of the ", format(vcount(g), big.mark = ","), " nodes (", round(100 * length(net_authors) / vcount(g), 1), "%), so colouring would leave almost the whole network uncoloured. We therefore mark posting accounts in blue in the network plots instead. This is a documented deviation from the guide: the cluster link can be reported as a table once the Section 2.4 cluster labels are available, but plot colouring would still not be informative.")`
+
+### Answer to the research question
+
+- **Most central accounts.** The seed, `r seed_user_handle`, is the most central account on both measures, partly by design. Among the other accounts, popularity (in-degree) is held by accounts such as `r paste(others_in$account[1:3], collapse = ", ")`, which several of the seed's friends follow. Bridging (betweenness) is held by friends of the seed such as `r paste(btw3$account, collapse = ", ")`.
+- **Type of accounts.** `r n_individual` of the `r nrow(top5)` most central accounts we reviewed are individuals`r if (n_individual == nrow(top5)) ", and none are news outlets or companies" else ""`. Most work in software, AI or academia.
+- **Is it a cybersecurity community?** No. Only `r length(net_authors)` of `r format(vcount(g), big.mark = ",")` accounts (`r round(100 * length(net_authors) / vcount(g), 1)`%) posted about cybersecurity in our sample. The seed has a security background, but the community it follows is a general technology and AI audience. Within this sample, cybersecurity discussion on Bluesky is not concentrated in this highly followed human's network.
+
+### Limitations
+
+- **Follow network instead of mention network.** Mentions were too rare to build a mention network, so this analysis shows who follows whom, not who talks to whom about cybersecurity.
+- **Two-step sample around one seed.** The network covers only the seed, its `r length(friends_handles)` friends and the accounts they follow, so it is an *ego network*, not the cybersecurity community on Bluesky. A different seed would give a different network.
+- **Capped follow lists.** The API returned at most `r max(out_deg)` follows per friend, so most friends' lists are incomplete, and some edges among sampled accounts are missing.
+- **Sampling shapes centrality.** Only the seed and friends have outgoing edges. This inflates their total degree and betweenness, and it means the top-50 subgraph reflects the sample design.
+- **Snapshot in time.** Follows were collected once (`r format(collected_at, "%d %B %Y")`), and follow relationships change over time.
+- **Account types** come from reading public profile descriptions, which are self-reported and can change.
