@@ -4,6 +4,22 @@ subtitle: "COMP3020 Social Web Analytics — Group 32"
 output: word_document
 ---
 
+**COMP3020 — Social Web Analytics**
+
+**Group Number:** 32
+
+## Group Members and Contributions
+
+| Group Member | Student ID | Contribution |
+|:-------------|:-----------|-------------:|
+| Yousuf | [20397249] | [33.3]% |
+| Seemrah Panwala | [22175168] | [33.3]% |
+| Rishikanth | [22170637] | [33.3]% |
+
+**Total Contribution: 100%**
+
+\newpage
+
 # 2. Analysis
 
 ## 2.1 Data Collection
