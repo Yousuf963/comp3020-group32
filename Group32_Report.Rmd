@@ -1,11 +1,7 @@
 ---
 title: "Who Really Talks About Cybersecurity on Bluesky?"
 subtitle: "COMP3020 Social Web Analytics — Group 32"
-output:
-  pdf_document:
-    toc: false
-geometry: margin=0.85in
-fontsize: 10pt
+output: word_document
 ---
 
 **COMP3020 — Social Web Analytics**  
@@ -20,7 +16,6 @@ fontsize: 10pt
 | Rishikanth | 22170637 | 33.33% |
 | **Total** | | **100%** |
 
-*Before submission, replace abbreviated names with full names and confirm these contribution percentages reflect the group's agreed allocation.*
 
 \newpage
 
