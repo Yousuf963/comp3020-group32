@@ -1,0 +1,114 @@
+---
+title: "2.3 Text/Content Analysis and Visualisation"
+output: word_document
+---
+
+## 2.3 Text/Content Analysis and Visualisation
+
+**Research question:** What are the most frequently discussed
+topics in cybersecurity-related posts on Bluesky?
+
+This section analyses the text of cybersecurity-related
+Bluesky posts to identify frequently occurring words
+and emerging discussion themes.
+
+```{r text-setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidytext)
+library(knitr)
+
+posts <- readRDS("data/posts_clean.rds")
+
+# Check the dataset
+dim(posts)
+names(posts)
+head(posts)
+```
+
+```{r text-cleaning}
+custom_stop <- tibble(
+  word = c("cybersecurity", "infosec",
+           "https", "http", "www", "amp")
+)
+
+words <- posts %>%
+  select(id, text) %>%
+  filter(!is.na(text), text != "") %>%
+  mutate(text = str_remove_all(text, "https?://\\S+")) %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words, by = "word") %>%
+  anti_join(custom_stop, by = "word") %>%
+  filter(!str_detect(word, "^[0-9]+$"))
+
+head(words)
+```
+
+```{r word-frequency}
+word_frequency <- words %>%
+  count(word, sort = TRUE)
+
+head(word_frequency, 20)
+```
+
+```{r word-frequency-plot, fig.width=8, fig.height=5}
+word_frequency %>%
+  slice_head(n = 20) %>%
+  ggplot(aes(x = n, y = reorder(word, n))) +
+  geom_col(fill = "#6B5B95") +
+  labs(
+    title = "Top 20 Words in Bluesky Cybersecurity Discussions",
+    subtitle = "Excluding search keywords and stop words",
+    x = "Frequency",
+    y = "Word"
+  ) +
+  theme_minimal()
+
+word_author_counts <- words %>%
+  distinct(id, word) %>%
+  left_join(posts %>% select(id, author), by = "id") %>%
+  group_by(word) %>%
+  summarise(
+    authors = n_distinct(author),
+    .groups = "drop"
+  )
+
+word_frequency %>%
+  inner_join(word_author_counts, by = "word") %>%
+  slice_max(n, n = 15) %>%
+  ggplot(aes(x = authors, y = reorder(word, authors))) +
+  geom_col(fill = "#6B5B95") +
+  labs(
+    title = "Number of Authors Using Common Cybersecurity Terms",
+    x = "Distinct Authors",
+    y = "Word"
+  ) +
+  theme_minimal()
+
+
+```
+
+### Interpretation of Text Analysis
+
+
+Looking at word frequencies across Bluesky's cybersecurity discussions, topics like AI, ransomware, threat intelligence, and vulnerabilities stood out right away. But when we looked at who was posting, the picture changed. AI was mentioned by roughly 158 different authors, showing broad community engagement. Ransomware was driven by just ~23 users, while "CTI" and "threatintelligence" came down to just 1–2 authors. It was an eye-opener: a few hyper-active accounts can make a niche topic seem everywhere. We also saw repetitive meta-words like "post," "blog," and "title"—likely from news feeds or shared templates—though repeated phrasing alone doesn't necessarily mean an account is a bot.
+
+To make sense of the broader patterns beyond simple word counts, we ran K-means clustering on the posts' TF-IDF representations. The elbow method gave us a bit of a faint signal rather than a sharp bend, but six clusters gave us a really clear structure to work with.
+
+Naturally, the data had its own story to tell. Cluster 5 took up the lion's share with 780 posts (about 62% of the dataset), acting as a broad catch-all for everyday, general cybersecurity chatter. Clusters 4 and 6 sat in the middle at around 190 posts each, with Cluster 6 pulling together structured news and threat-intelligence alerts with near-identical formatting.
+
+The remaining clusters (1, 2, and 3) were much smaller, but they brought out highly specific vocabulary. In fact, Cluster 3 was an insightful edge case: it caught a pocket of German-language posts that had slipped past our English filter!
+
+Ultimately, this contrast in cluster sizes highlights why text analysis requires looking at multiple angles: while most users stick to broad, overlapping conversation, smaller groups use highly specialized language—and the most frequently mentioned topics aren't always the most widely discussed.
+
+
+
+
+
+
+
+
+
+
+
+
+

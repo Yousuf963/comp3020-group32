@@ -1,0 +1,198 @@
+---
+title: "2.4 Clustering Analysis"
+output: word_document
+---
+
+## 2.4 Clustering Analysis
+
+**Research question:** What groups of similar topics can be identified in cybersecurity-related Bluesky posts?
+
+```{r clustering-setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidytext)
+library(knitr)
+
+posts <- readRDS("data/posts_clean.rds")
+
+# Check dataset
+dim(posts)
+names(posts)
+```
+
+```{r tfidf}
+custom_stop <- tibble(
+  word = c("cybersecurity", "infosec",
+           "https", "http", "www", "amp")
+)
+
+cluster_words <- posts %>%
+  select(id, text) %>%
+  filter(!is.na(text), text != "") %>%
+  mutate(text = str_remove_all(text, "https?://\\S+")) %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words, by = "word") %>%
+  anti_join(custom_stop, by = "word") %>%
+  filter(!str_detect(word, "^[0-9]+$"))
+
+tfidf_data <- cluster_words %>%
+  count(id, word) %>%
+  bind_tf_idf(word, id, n)
+
+head(tfidf_data, 10)
+
+# Keep the 500 most frequent words to reduce noise
+top_terms <- cluster_words %>%
+  count(word, sort = TRUE) %>%
+  slice_head(n = 500) %>%
+  pull(word)
+
+# Convert TF-IDF into a document-term matrix
+tfidf_matrix <- tfidf_data %>%
+  filter(word %in% top_terms) %>%
+  select(id, word, tf_idf) %>%
+  pivot_wider(
+    names_from = word,
+    values_from = tf_idf,
+    values_fill = 0
+  )
+
+# Keep post IDs separately
+post_ids <- tfidf_matrix$id
+
+# Convert to numeric matrix
+X <- as.matrix(tfidf_matrix %>% select(-id))
+
+# Remove documents with no retained terms
+keep <- rowSums(X^2) > 0
+X <- X[keep, , drop = FALSE]
+post_ids <- post_ids[keep]
+
+# Normalise each document vector
+X <- X / sqrt(rowSums(X^2))
+
+dim(X)
+
+set.seed(123)
+
+# Test different numbers of clusters
+k_values <- 2:10
+
+wss <- sapply(k_values, function(k) {
+  kmeans(X, centers = k, nstart = 10, iter.max = 100)$tot.withinss
+})
+
+# Elbow plot
+plot(
+  k_values, wss,
+  type = "b",
+  pch = 19,
+  xlab = "Number of Clusters (k)",
+  ylab = "Total Within-Cluster Sum of Squares",
+  main = "Elbow Method for Selecting k"
+)
+
+set.seed(123)
+
+k <- 6
+
+km <- kmeans(
+  X,
+  centers = k,
+  nstart = 25,
+  iter.max = 100
+)
+
+cluster_assignments <- tibble(
+  id = post_ids,
+  cluster = factor(km$cluster)
+)
+
+# Check the number of posts in each cluster
+cluster_assignments %>%
+  count(cluster)
+
+cluster_terms <- tfidf_data %>%
+  inner_join(cluster_assignments, by = "id") %>%
+  group_by(cluster, word) %>%
+  summarise(
+    mean_tfidf = sum(tf_idf) /
+      n_distinct(cluster_assignments$id[
+        cluster_assignments$cluster == first(cluster)
+      ]),
+    .groups = "drop"
+  ) %>%
+  group_by(cluster) %>%
+  slice_max(mean_tfidf, n = 10) %>%
+  arrange(cluster, desc(mean_tfidf))
+
+cluster_terms
+```
+
+We can observe the curve begins to flatten out at 6, therefore we will be using k=6
+
+```{r}
+cluster_terms %>%
+  group_by(cluster) %>%
+  slice_max(mean_tfidf, n = 8) %>%
+  ungroup() %>%
+  ggplot(aes(
+    x = mean_tfidf,
+    y = reorder_within(word, mean_tfidf, cluster),
+    fill = cluster
+  )) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~cluster, scales = "free_y", ncol = 2) +
+  scale_y_reordered() +
+  labs(
+    title = "Top Words Characterising Each Cluster",
+    x = "Mean TF-IDF",
+    y = "Word"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+cluster_assignments %>%
+  count(cluster) %>%
+  ggplot(aes(x = cluster, y = n)) +
+  geom_col(fill = "#6B5B95") +
+  labs(
+    title = "Distribution of Posts Across Six Clusters",
+    x = "Cluster",
+    y = "Number of Posts"
+  ) +
+  theme_minimal()
+```
+Looking at the distribution, Cluster 5 took up the lion's share with 780 posts—roughly 62% of the whole dataset. Clusters 4 and 6 sat comfortably in the middle at around 190 posts each, with Cluster 6 heavily leaning into structured cybersecurity news and threat-intelligence terminology.
+
+Meanwhile, Clusters 1, 2, and 3 were much smaller, but they packed a punch with highly specific vocabulary.
+
+This contrast in cluster sizes makes a lot of sense: most people are sharing broad, overlapping cybersecurity talk, while smaller, dedicated groups naturally stick to far more distinctive, specialized language.
+
+```{r}
+# Add cluster assignments to the cleaned posts
+posts_clustered <- posts %>%
+  left_join(cluster_assignments, by = "id")
+
+# Check how many posts received clusters
+posts_clustered %>%
+  count(cluster, .drop = FALSE)
+
+# Save for the group report
+saveRDS(posts_clustered, "data/posts_clustered.rds")
+
+```
+
+```{r}
+posts_clustered %>%
+  filter(!is.na(cluster)) %>%
+  group_by(cluster) %>%
+  slice_head(n = 3) %>%
+  select(cluster, text) %>%
+  print(n = 18, width = 100)
+```
+To make sense of the data, we grouped the posts into six clusters based on their TF-IDF profiles. While the elbow method gave us a bit of a faint signal rather than a sharp bend, six clusters gave us a really useful structure to work with.
+
+Naturally, the data had its own story to tell. About 62% of the posts (780 in total) tumbled into Cluster 5, which naturally absorbed general, everyday cybersecurity talk. But when we looked past that main cluster, the remaining groups really shone—highlighting specific discussions around ransomware, job hunting, and technical vulnerabilities.
+
+Cluster 6 gave us a clear view of bot-like or templated ransomware alerts, while Cluster 3 unexpectedly caught a cluster of German posts that slipped through our English filter. That was a great reminder of how real-world data constantly tests our assumptions! Ultimately, clustering proved its worth by revealing these distinct sub-communities that standard frequency counts would have completely overlooked.
