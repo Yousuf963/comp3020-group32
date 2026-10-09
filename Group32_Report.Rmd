@@ -1,10 +1,16 @@
+
 ---
 title: "Who Really Talks About Cybersecurity on Bluesky?"
 subtitle: "COMP3020 Social Web Analytics — Group 32"
-output: word_document
+output:
+  pdf_document:
+    toc: false
+    number_sections: false
+geometry: margin=0.85in
+fontsize: 10pt
 ---
 
-**COMP3020 — Social Web Analytics**
+**Unit:** COMP3020 — Social Web Analytics
 
 **Group Number:** 32
 
@@ -12,11 +18,12 @@ output: word_document
 
 | Group Member | Student ID | Contribution |
 |:-------------|:-----------|-------------:|
-| Yousuf | [20397249] | [33.3]% |
-| Seemrah Panwala | [22175168] | [33.3]% |
-| Rishikanth | [22170637] | [33.3]% |
+| Yousuf | 20397249 | 33.34% |
+| Seemrah Panwala | 22175168 | 33.33% |
+| Rishikanth | 22170637 | 33.33% |
+| **Total** | | **100%** |
 
-**Total Contribution: 100%**
+*The percentages above are a proposed near-equal allocation and should be confirmed by all group members before submission.*
 
 \newpage
 
@@ -32,119 +39,153 @@ output: word_document
 
 ## 2.3 Text/Content Analysis and Visualisation
 
-**Research question:** What are the most frequently discussed
-topics in cybersecurity-related posts on Bluesky?
+**Research question:** What are the most frequently discussed topics in cybersecurity-related posts on Bluesky, and how widely are these topics discussed across different authors?
 
-This section analyses the text of cybersecurity-related
-Bluesky posts to identify frequently occurring words
-and emerging discussion themes.
+### Methodology
 
-```{r text-setup, message=FALSE, warning=FALSE}
+The text analysis was conducted using the cleaned Bluesky dataset prepared in Section 2.1. The analysis aimed to identify frequently occurring terms and examine whether these terms were used by many different authors or concentrated among a smaller number of highly active accounts.
+
+The text was tokenised into individual words using the `tidytext` package. URLs, standard English stop words, numerical tokens and selected irrelevant terms were removed. The original search keywords, "cybersecurity" and "infosec", were also excluded to prevent them from dominating the frequency analysis simply because they were used to collect the posts.
+
+Two visualisations were created: one showing the most frequent words and another showing how many distinct authors used those words.
+
+```{r text-setup, include=FALSE}
 library(tidyverse)
 library(tidytext)
 library(knitr)
 
 posts <- readRDS("data/posts_clean.rds")
-
-# Check the dataset
-dim(posts)
-names(posts)
-head(posts)
 ```
 
-```{r text-cleaning}
+```{r text-cleaning, include=FALSE}
 custom_stop <- tibble(
-  word = c("cybersecurity", "infosec",
-           "https", "http", "www", "amp")
+  word = c(
+    "cybersecurity", "infosec",
+    "https", "http", "www", "amp"
+  )
 )
 
 words <- posts %>%
   select(id, text) %>%
   filter(!is.na(text), text != "") %>%
-  mutate(text = str_remove_all(text, "https?://\\S+")) %>%
+  mutate(
+    text = str_remove_all(text, "https?://\\S+")
+  ) %>%
   unnest_tokens(word, text) %>%
   anti_join(stop_words, by = "word") %>%
   anti_join(custom_stop, by = "word") %>%
   filter(!str_detect(word, "^[0-9]+$"))
 
-head(words)
-```
-
-```{r word-frequency}
 word_frequency <- words %>%
   count(word, sort = TRUE)
-
-head(word_frequency, 20)
 ```
 
-```{r word-frequency-plot, fig.width=8, fig.height=5}
+### Word Frequency Analysis
+
+The first visualisation shows the 20 most frequently occurring words after text cleaning. This provides an overview of the topics and terminology appearing most often in the collected posts.
+
+```{r word-frequency-plot, echo=FALSE, fig.width=7, fig.height=4.5, fig.cap="Figure 1. Twenty most frequent words in cybersecurity-related Bluesky posts, excluding search keywords and stop words."}
 word_frequency %>%
   slice_head(n = 20) %>%
-  ggplot(aes(x = n, y = reorder(word, n))) +
+  ggplot(aes(
+    x = n,
+    y = reorder(word, n)
+  )) +
   geom_col(fill = "#6B5B95") +
   labs(
     title = "Top 20 Words in Bluesky Cybersecurity Discussions",
-    subtitle = "Excluding search keywords and stop words",
-    x = "Frequency",
+    x = "Word Frequency",
     y = "Word"
   ) +
   theme_minimal()
+```
 
+### Author Distribution of Common Terms
+
+Word frequency alone does not indicate whether a term is widely discussed across the community. A word may appear frequently because a small number of accounts repeatedly post similar content.
+
+To investigate this, the number of distinct authors using each common word was calculated. Each author was counted once per word, regardless of how many times they used it.
+
+```{r word-author-analysis, include=FALSE}
 word_author_counts <- words %>%
   distinct(id, word) %>%
-  left_join(posts %>% select(id, author), by = "id") %>%
+  left_join(
+    posts %>% select(id, author),
+    by = "id"
+  ) %>%
   group_by(word) %>%
   summarise(
     authors = n_distinct(author),
     .groups = "drop"
   )
 
-word_frequency %>%
+word_author_data <- word_frequency %>%
   inner_join(word_author_counts, by = "word") %>%
-  slice_max(n, n = 15) %>%
-  ggplot(aes(x = authors, y = reorder(word, authors))) +
+  slice_max(n, n = 15, with_ties = FALSE)
+```
+
+```{r word-author-plot, echo=FALSE, fig.width=7, fig.height=4.5, fig.cap="Figure 2. Number of distinct authors using the most frequently occurring cybersecurity terms."}
+word_author_data %>%
+  ggplot(aes(
+    x = authors,
+    y = reorder(word, authors)
+  )) +
   geom_col(fill = "#6B5B95") +
   labs(
-    title = "Number of Authors Using Common Cybersecurity Terms",
-    x = "Distinct Authors",
+    title = "Author Distribution of Common Cybersecurity Terms",
+    x = "Number of Distinct Authors",
     y = "Word"
   ) +
   theme_minimal()
-
-
 ```
 
 ### Interpretation of Text Analysis
 
+The word-frequency analysis identified AI, ransomware, threat intelligence and software vulnerabilities as prominent themes in the collected cybersecurity posts.
 
-Looking at word frequencies across Bluesky's cybersecurity discussions, topics like AI, ransomware, threat intelligence, and vulnerabilities stood out right away. But when we looked at who was posting, the picture changed. AI was mentioned by roughly 158 different authors, showing broad community engagement. Ransomware was driven by just ~23 users, while "CTI" and "threatintelligence" came down to just 1–2 authors. It was an eye-opener: a few hyper-active accounts can make a niche topic seem everywhere. We also saw repetitive meta-words like "post," "blog," and "title"—likely from news feeds or shared templates—though repeated phrasing alone doesn't necessarily mean an account is a bot.
+However, the author-distribution analysis revealed that high word frequency did not necessarily indicate widespread discussion.
+
+AI appeared across approximately 158 different authors, suggesting that it was discussed by a relatively broad range of accounts. In comparison, ransomware-related vocabulary was concentrated among fewer authors. Terms such as "CTI" and "threatintelligence" appeared frequently despite being used by only one or two authors.
+
+These findings suggest that a small number of highly active accounts can disproportionately influence which words appear most frequently in the dataset.
+
+The frequent appearance of words such as "post", "blog" and "title" may also indicate structured news-sharing formats or repeated content templates. However, repeated terminology alone is insufficient to establish whether an account is automated.
+
+Overall, comparing word frequency with author diversity provides a more informative picture of cybersecurity discussion than word frequency alone.
+
+### Limitations
+
+The analysis used a keyword-based sample collected over a limited period, so the results may not represent all cybersecurity discussions on Bluesky.
+
+Furthermore, the analysis focused on individual words rather than complete sentences or their context. Consequently, frequent words indicate prominent vocabulary but do not necessarily capture the meaning or sentiment of the discussions.
 
 ## 2.4 Clustering Analysis
 
 **Research question:** What groups of similar topics can be identified in cybersecurity-related Bluesky posts?
 
-```{r clustering-setup, message=FALSE, warning=FALSE}
-library(tidyverse)
-library(tidytext)
-library(knitr)
+### Methodology
 
+Clustering was used to group posts according to similarities in their textual content.
+
+The same cleaned dataset and text preprocessing approach used in Section 2.3 were applied to maintain consistency between the analyses.
+
+**Text representation.** Term Frequency–Inverse Document Frequency (TF-IDF) was used to convert each post into a numerical representation. TF-IDF assigns greater importance to words that are relatively distinctive to a document, while reducing the influence of terms appearing across many documents.
+
+The 500 most frequent retained terms were selected to reduce the number of variables and limit the influence of less frequent vocabulary.
+
+**Distance measure.** Each TF-IDF document vector was normalised to unit length. K-means clustering was then applied using Euclidean distance. For unit-normalised vectors, squared Euclidean distance is directly related to cosine similarity, making this approach suitable for comparing the direction of text vectors.
+
+**Clustering algorithm.** K-means was selected to group posts into clusters with similar numerical representations. Multiple initialisations were used to reduce sensitivity to the randomly selected starting centres.
+
+```{r clustering-setup, include=FALSE}
 posts <- readRDS("data/posts_clean.rds")
-
-# Check dataset
-dim(posts)
-names(posts)
-```
-
-```{r tfidf}
-custom_stop <- tibble(
-  word = c("cybersecurity", "infosec",
-           "https", "http", "www", "amp")
-)
 
 cluster_words <- posts %>%
   select(id, text) %>%
   filter(!is.na(text), text != "") %>%
-  mutate(text = str_remove_all(text, "https?://\\S+")) %>%
+  mutate(
+    text = str_remove_all(text, "https?://\\S+")
+  ) %>%
   unnest_tokens(word, text) %>%
   anti_join(stop_words, by = "word") %>%
   anti_join(custom_stop, by = "word") %>%
@@ -154,15 +195,11 @@ tfidf_data <- cluster_words %>%
   count(id, word) %>%
   bind_tf_idf(word, id, n)
 
-head(tfidf_data, 10)
-
-# Keep the 500 most frequent words to reduce noise
 top_terms <- cluster_words %>%
   count(word, sort = TRUE) %>%
   slice_head(n = 500) %>%
   pull(word)
 
-# Convert TF-IDF into a document-term matrix
 tfidf_matrix <- tfidf_data %>%
   filter(word %in% top_terms) %>%
   select(id, word, tf_idf) %>%
@@ -172,41 +209,58 @@ tfidf_matrix <- tfidf_data %>%
     values_fill = 0
   )
 
-# Keep post IDs separately
 post_ids <- tfidf_matrix$id
 
-# Convert to numeric matrix
-X <- as.matrix(tfidf_matrix %>% select(-id))
+X <- as.matrix(
+  tfidf_matrix %>% select(-id)
+)
 
-# Remove documents with no retained terms
 keep <- rowSums(X^2) > 0
+
 X <- X[keep, , drop = FALSE]
 post_ids <- post_ids[keep]
 
-# Normalise each document vector
 X <- X / sqrt(rowSums(X^2))
+```
 
-dim(X)
+### Selecting the Number of Clusters
 
+The elbow method was used to examine the total within-cluster sum of squares for values of k between 2 and 10.
+
+A lower within-cluster sum of squares indicates that posts are more similar to their assigned cluster centres. However, increasing the number of clusters will generally reduce this value, so the aim is to identify a reasonable balance between fit and complexity.
+
+```{r elbow-calculation, include=FALSE}
 set.seed(123)
 
-# Test different numbers of clusters
 k_values <- 2:10
 
 wss <- sapply(k_values, function(k) {
-  kmeans(X, centers = k, nstart = 10, iter.max = 100)$tot.withinss
+  kmeans(
+    X,
+    centers = k,
+    nstart = 10,
+    iter.max = 100
+  )$tot.withinss
 })
+```
 
-# Elbow plot
+```{r elbow-plot, echo=FALSE, fig.width=6.5, fig.height=4, fig.cap="Figure 3. Elbow method showing within-cluster sum of squares for k = 2 to 10."}
 plot(
-  k_values, wss,
+  k_values,
+  wss,
   type = "b",
   pch = 19,
   xlab = "Number of Clusters (k)",
   ylab = "Total Within-Cluster Sum of Squares",
   main = "Elbow Method for Selecting k"
 )
+```
 
+The curve begins to flatten around k = 6, although the elbow is not sharply defined. Six clusters were therefore selected as a reasonable exploratory choice, allowing more specific discussion themes to be examined.
+
+### K-means Clustering
+
+```{r kmeans-analysis, include=FALSE}
 set.seed(123)
 
 k <- 6
@@ -223,41 +277,95 @@ cluster_assignments <- tibble(
   cluster = factor(km$cluster)
 )
 
-# Check the number of posts in each cluster
-cluster_assignments %>%
-  count(cluster)
-
-cluster_terms <- tfidf_data %>%
-  inner_join(cluster_assignments, by = "id") %>%
-  group_by(cluster, word) %>%
-  summarise(
-    mean_tfidf = sum(tf_idf) /
-      n_distinct(cluster_assignments$id[
-        cluster_assignments$cluster == first(cluster)
-      ]),
-    .groups = "drop"
-  ) %>%
-  group_by(cluster) %>%
-  slice_max(mean_tfidf, n = 10) %>%
-  arrange(cluster, desc(mean_tfidf))
-
-cluster_terms
+posts_clustered <- posts %>%
+  left_join(
+    cluster_assignments,
+    by = "id"
+)
 ```
 
-We can observe the curve begins to flatten out at 6, therefore we will be using k=6
+The clustering assigned `r nrow(cluster_assignments)` posts to six groups. The remaining `r sum(is.na(posts_clustered$cluster))` posts were not assigned because they contained none of the 500 retained terms after preprocessing.
 
-```{r cluster-topic-plot}
+### Cluster Sizes
+
+```{r cluster-size-plot, echo=FALSE, fig.width=7, fig.height=4, fig.cap="Figure 4. Number of posts assigned to each of the six K-means clusters."}
+cluster_assignments %>%
+  count(cluster) %>%
+  ggplot(aes(
+    x = cluster,
+    y = n
+  )) +
+  geom_col(fill = "#6B5B95") +
+  labs(
+    title = "Distribution of Posts Across Six Clusters",
+    x = "Cluster",
+    y = "Number of Posts"
+  ) +
+  theme_minimal()
+```
+
+The cluster sizes were uneven. Cluster 5 contained 780 posts, representing approximately 62% of the clustered posts. Clusters 4 and 6 each contained approximately 190 posts, while Clusters 1, 2 and 3 were considerably smaller.
+
+This suggests that a large proportion of posts shared broad or overlapping cybersecurity vocabulary, while smaller groups contained more distinctive terminology.
+
+### Identifying Cluster Topics
+
+To interpret the clusters, the average TF-IDF values of terms within each cluster were examined. Representative posts were also reviewed to assess whether the identified terms reflected coherent topics.
+
+```{r cluster-term-analysis, include=FALSE}
+cluster_sizes <- cluster_assignments %>%
+  count(cluster, name = "cluster_size")
+
+cluster_terms <- tfidf_data %>%
+  inner_join(
+    cluster_assignments,
+    by = "id"
+  ) %>%
+  group_by(cluster, word) %>%
+  summarise(
+    total_tfidf = sum(tf_idf),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    cluster_sizes,
+    by = "cluster"
+  ) %>%
+  mutate(
+    mean_tfidf = total_tfidf / cluster_size
+  ) %>%
+  group_by(cluster) %>%
+  slice_max(
+    mean_tfidf,
+    n = 10,
+    with_ties = FALSE
+  ) %>%
+  arrange(cluster, desc(mean_tfidf))
+```
+
+```{r cluster-topic-plot, echo=FALSE, fig.width=8, fig.height=9, fig.cap="Figure 5. Terms with the highest average TF-IDF values in each cluster."}
 cluster_terms %>%
   group_by(cluster) %>%
-  slice_max(mean_tfidf, n = 8) %>%
+  slice_max(
+    mean_tfidf,
+    n = 8,
+    with_ties = FALSE
+  ) %>%
   ungroup() %>%
   ggplot(aes(
     x = mean_tfidf,
-    y = reorder_within(word, mean_tfidf, cluster),
+    y = reorder_within(
+      word,
+      mean_tfidf,
+      cluster
+    ),
     fill = cluster
   )) +
   geom_col(show.legend = FALSE) +
-  facet_wrap(~cluster, scales = "free_y", ncol = 2) +
+  facet_wrap(
+    ~cluster,
+    scales = "free_y",
+    ncol = 2
+  ) +
   scale_y_reordered() +
   labs(
     title = "Top Words Characterising Each Cluster",
@@ -267,51 +375,49 @@ cluster_terms %>%
   theme_minimal()
 ```
 
-```{r cluster-size-plot}
-cluster_assignments %>%
-  count(cluster) %>%
-  ggplot(aes(x = cluster, y = n)) +
-  geom_col(fill = "#6B5B95") +
-  labs(
-    title = "Distribution of Posts Across Six Clusters",
-    x = "Cluster",
-    y = "Number of Posts"
-  ) +
-  theme_minimal()
+### Interpretation of Clusters
+
+The six clusters revealed several distinct categories of cybersecurity-related content.
+
+| Cluster | Main Topic | Description |
+|:--------|:-----------|:------------|
+| 1 | Software vulnerabilities | CVE alerts, exploits and software security flaws |
+| 2 | Cybersecurity careers | Job advertisements and professional roles |
+| 3 | Cyber incidents | Ransomware attacks and security breaches, including German-language posts |
+| 4 | AI and emerging technology | AI-related security risks and technology discussions |
+| 5 | General cybersecurity | Broad security news, opinions and discussions |
+| 6 | Ransomware intelligence feeds | Repeated alerts concerning ransomware groups and victims |
+
+Cluster 5 was the largest and contained a broad mixture of cybersecurity discussions. This suggests that many posts shared general security-related vocabulary rather than forming clearly separated topical groups.
+
+In contrast, the smaller clusters were associated with more specialised subjects. Cluster 1 focused on software vulnerabilities and exploit alerts, while Cluster 2 contained cybersecurity job-related posts.
+
+Cluster 3 included several German-language cybersecurity updates despite the earlier English-language filter. This demonstrates a limitation of relying on language tags during data collection and cleaning.
+
+Cluster 6 contained repeated ransomware intelligence alerts with highly similar formats. These posts illustrate how structured or frequently repeated content can produce a distinctive vocabulary-based cluster.
+
+Overall, clustering revealed patterns that were not fully visible through word-frequency analysis alone. In particular, it helped distinguish broad cybersecurity discussion from more specialised and repetitive forms of content.
+
+### Clustering Limitations
+
+The results should be interpreted as exploratory rather than definitive topic categories.
+
+First, the elbow method did not produce a clearly defined optimal number of clusters, so the choice of six clusters involved judgement.
+
+Second, the clusters were highly uneven in size, with one cluster containing most of the posts. This may indicate that the dataset contains overlapping topics that are difficult to separate using K-means.
+
+Third, selecting the 500 most frequent terms may exclude rare but meaningful cybersecurity terminology.
+
+Finally, the presence of German-language posts and repetitive content demonstrates that language filtering and text preprocessing did not eliminate all sources of noise.
+
+The cluster labels are descriptive interpretations based on frequent terms and example posts, rather than independently verified categories.
+
+```{r save-clustered-data, include=FALSE}
+saveRDS(
+  posts_clustered,
+  "data/posts_clustered.rds"
+)
 ```
-Looking at the distribution, Cluster 5 took up the lion's share with 780 posts—roughly 62% of the whole dataset. Clusters 4 and 6 sat comfortably in the middle at around 190 posts each, with Cluster 6 heavily leaning into structured cybersecurity news and threat-intelligence terminology.
-
-Meanwhile, Clusters 1, 2, and 3 were much smaller, but they packed a punch with highly specific vocabulary.
-
-This contrast in cluster sizes makes a lot of sense: most people are sharing broad, overlapping cybersecurity talk, while smaller, dedicated groups naturally stick to far more distinctive, specialized language.
-
-```{r save-clustered-data}
-# Add cluster assignments to the cleaned posts
-posts_clustered <- posts %>%
-  left_join(cluster_assignments, by = "id")
-
-# Check how many posts received clusters
-posts_clustered %>%
-  count(cluster, .drop = FALSE)
-
-# Save for the group report
-saveRDS(posts_clustered, "data/posts_clustered.rds")
-
-```
-
-```{r cluster-example-posts}
-posts_clustered %>%
-  filter(!is.na(cluster)) %>%
-  group_by(cluster) %>%
-  slice_head(n = 3) %>%
-  select(cluster, text) %>%
-  print(n = 18, width = 100)
-```
-To make sense of the data, we grouped the posts into six clusters based on their TF-IDF profiles. While the elbow method gave us a bit of a faint signal rather than a sharp bend, six clusters gave us a really useful structure to work with.
-
-Naturally, the data had its own story to tell. About 62% of the posts (780 in total) tumbled into Cluster 5, which naturally absorbed general, everyday cybersecurity talk. But when we looked past that main cluster, the remaining groups really shone—highlighting specific discussions around ransomware, job hunting, and technical vulnerabilities.
-
-Cluster 6 gave us a clear view of bot-like or templated ransomware alerts, while Cluster 3 unexpectedly caught a cluster of German posts that slipped through our English filter. That was a great reminder of how real-world data constantly tests our assumptions! Ultimately, clustering proved its worth by revealing these distinct sub-communities that standard frequency counts would have completely overlooked.
 
 ## 2.5 Network Analysis
 
