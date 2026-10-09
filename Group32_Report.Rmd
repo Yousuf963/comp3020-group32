@@ -1,7 +1,11 @@
 ---
 title: "Who Really Talks About Cybersecurity on Bluesky?"
 subtitle: "COMP3020 Social Web Analytics — Group 32"
-output: pdf_document
+output:
+  pdf_document:
+    toc: false
+geometry: margin=0.85in
+fontsize: 10pt
 ---
 
 **COMP3020 — Social Web Analytics**  
@@ -16,22 +20,23 @@ output: pdf_document
 | Rishikanth | 22170637 | 33.33% |
 | **Total** | | **100%** |
 
+*Before submission, replace abbreviated names with full names and confirm these contribution percentages reflect the group's agreed allocation.*
 
 \newpage
 
 ```{r report-options, include=FALSE}
-knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE)
+knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE, fig.pos="H")
 ```
 
 # 2. Analysis
 
 ## 2.1 Data Collection
 
-<!-- Yousuf: insert Section 2.1 here. -->
+<!-- REQUIRED BEFORE SUBMISSION — Yousuf: insert the actual data-collection and cleaning methods, including source/API, collection dates, packages, variables, raw/cleaned counts, cleaning stages and limitations. The findings section references cleaning_log.rds and bluesky_raw.RData; verify those match the methods here. -->
 
 ## 2.2 Hypothesis Testing
 
-<!-- Yousuf: insert Section 2.2 here. -->
+<!-- REQUIRED BEFORE SUBMISSION — Yousuf: insert the actual research question, null/alternative hypotheses, test choice and justification, relevant plot/table, statistical result, conclusion at alpha=0.05, and limitations. Ensure this matches the human/bot chi-square test described in Section 3. -->
 
 ## 2.3 Text/Content Analysis and Visualisation
 
@@ -42,7 +47,7 @@ This section analyses the text of cybersecurity-related
 Bluesky posts to identify frequently occurring words
 and emerging discussion themes.
 
-```{r text-setup, message=FALSE, warning=FALSE}
+```{r text-setup, include=FALSE}
 library(tidyverse)
 library(tidytext)
 library(knitr)
@@ -50,7 +55,7 @@ library(knitr)
 posts <- readRDS("data/posts_clean.rds")
 ```
 
-```{r text-cleaning}
+```{r text-cleaning, echo=TRUE}
 custom_stop <- tibble(
   word = c("cybersecurity", "infosec",
            "https", "http", "www", "amp")
@@ -67,14 +72,13 @@ words <- posts %>%
 
 ```
 
-```{r word-frequency}
+```{r word-frequency, include=FALSE}
 word_frequency <- words %>%
   count(word, sort = TRUE)
 
-head(word_frequency, 20)
 ```
 
-```{r word-frequency-plot, fig.width=8, fig.height=5}
+```{r word-frequency-plot, echo=FALSE, fig.width=7, fig.height=4.5, fig.cap="Twenty most frequent terms and number of distinct authors using common terms in the Bluesky sample."}
 word_frequency %>%
   slice_head(n = 20) %>%
   ggplot(aes(x = n, y = reorder(word, n))) +
@@ -114,13 +118,15 @@ word_frequency %>%
 ### Interpretation of Text Analysis
 
 
-Looking at word frequencies across Bluesky's cybersecurity discussions, topics like AI, ransomware, threat intelligence, and vulnerabilities stood out right away. But when we looked at who was posting, the picture changed. AI was mentioned by roughly 158 different authors, showing broad community engagement. Ransomware was driven by just ~23 users, while "CTI" and "threatintelligence" came down to just 1–2 authors. It was an eye-opener: a few hyper-active accounts can make a niche topic seem everywhere. We also saw repetitive meta-words like "post," "blog," and "title"—likely from news feeds or shared templates—though repeated phrasing alone doesn't necessarily mean an account is a bot.
+The most frequent terms include AI, ransomware, threat intelligence and vulnerabilities. The author-level comparison adds an important distinction: AI was used by approximately 158 distinct authors, whereas ransomware appeared across approximately 23 authors, and terms such as "CTI" and "threatintelligence" were concentrated among one or two authors. These counts indicate that high term frequency does not necessarily represent broad participation. Repeated words such as "post", "blog" and "title" may reflect structured news-sharing or templated content, but vocabulary alone cannot establish whether an account is automated.
+
+**Limitation:** Keyword-based sampling, short posts, repeated feeds and imperfect language tags may affect the vocabulary observed. Word counts do not establish sentiment or context.
 
 ## 2.4 Clustering Analysis
 
 **Research question:** What groups of similar topics can be identified in cybersecurity-related Bluesky posts?
 
-```{r clustering-setup, message=FALSE, warning=FALSE}
+```{r clustering-setup, include=FALSE}
 library(tidyverse)
 library(tidytext)
 library(knitr)
@@ -128,7 +134,7 @@ library(knitr)
 posts <- readRDS("data/posts_clean.rds")
 ```
 
-```{r tfidf}
+```{r tfidf, echo=TRUE}
 custom_stop <- tibble(
   word = c("cybersecurity", "infosec",
            "https", "http", "www", "amp")
@@ -213,28 +219,22 @@ cluster_assignments <- tibble(
 )
 
 # Check the number of posts in each cluster
-cluster_assignments %>%
-  count(cluster)
 
 cluster_terms <- tfidf_data %>%
   inner_join(cluster_assignments, by = "id") %>%
   group_by(cluster, word) %>%
-  summarise(
-    mean_tfidf = sum(tf_idf) /
-      n_distinct(cluster_assignments$id[
-        cluster_assignments$cluster == first(cluster)
-      ]),
-    .groups = "drop"
-  ) %>%
+  summarise(total_tfidf = sum(tf_idf), .groups = "drop") %>%
+  left_join(cluster_assignments %>% count(cluster, name = "cluster_size"), by = "cluster") %>%
+  mutate(mean_tfidf = total_tfidf / cluster_size) %>%
   group_by(cluster) %>%
   slice_max(mean_tfidf, n = 10) %>%
   arrange(cluster, desc(mean_tfidf))
 
 ```
 
-We can observe the curve begins to flatten out at 6, therefore we will be using k=6
+The elbow curve begins to flatten around $k=6$, although the bend is not sharply defined. We therefore selected six clusters as an exploratory choice rather than a uniquely optimal solution.
 
-```{r cluster-topic-plot}
+```{r cluster-topic-plot, echo=FALSE, fig.width=8, fig.height=8, fig.cap="Highest average TF-IDF terms within each of the six clusters."}
 cluster_terms %>%
   group_by(cluster) %>%
   slice_max(mean_tfidf, n = 8) %>%
@@ -255,7 +255,7 @@ cluster_terms %>%
   theme_minimal()
 ```
 
-```{r cluster-size-plot}
+```{r cluster-size-plot, echo=FALSE, fig.width=7, fig.height=4, fig.cap="Number of posts assigned to each K-means cluster."}
 cluster_assignments %>%
   count(cluster) %>%
   ggplot(aes(x = cluster, y = n)) +
@@ -273,14 +273,12 @@ Meanwhile, Clusters 1, 2, and 3 were much smaller, but they packed a punch with 
 
 This contrast in cluster sizes makes a lot of sense: most people are sharing broad, overlapping cybersecurity talk, while smaller, dedicated groups naturally stick to far more distinctive, specialized language.
 
-```{r save-clustered-data}
+```{r save-clustered-data, include=FALSE}
 # Add cluster assignments to the cleaned posts
 posts_clustered <- posts %>%
   left_join(cluster_assignments, by = "id")
 
 # Check how many posts received clusters
-posts_clustered %>%
-  count(cluster, .drop = FALSE)
 
 # Save for the group report
 saveRDS(posts_clustered, "data/posts_clustered.rds")
@@ -599,7 +597,7 @@ if (has_clusters) {
 - **Snapshot in time.** Follows were collected once (`r format(collected_at, "%d %B %Y")`), and follow relationships change over time.
 - **Account types** come from reading public profile descriptions, which are self-reported and can change.
 
-## 3 Overall Findings
+## 3. Overall Findings
 
 ```{r find-setup, include=FALSE}
 # This section recalculates selected summary statistics from the saved project data,
@@ -768,6 +766,9 @@ Taken together, the four analyses describe a cybersecurity discussion on Bluesky
 - **Engagement at collection time.** Newer posts had less time to gather likes, reposts and replies.
 - **One-seed follow network.** The network is a two-step sample around a single account with capped follow lists. It shows who follows whom, not who talks to whom.
 
-### Reproducibility
+### Code Repository and Reproducibility
 
-All code and data are in the project repository: `r github_url`. The data were collected once (`scripts/Collect.R`), cleaned once (`scripts/Clean.R`) and saved. Every section of this report loads the same saved files, and this section recalculates its summary statistics from them.
+**GitHub repository:** [Group 32 — COMP3020 project](https://github.com/Yousuf963/comp3020-group32)
+
+
+The repository is intended to provide the R Markdown source files, analysis scripts, and saved datasets used for the project. The data collection and cleaning scripts are referenced as `scripts/Collect.R` and `scripts/Clean.R`. The report uses saved datasets rather than collecting new data when knitted. **Before submission, confirm the link opens without signing in and that the referenced files are present.**
