@@ -1,7 +1,7 @@
 ---
 title: "Who Really Talks About Cybersecurity on Bluesky?"
 subtitle: "COMP3020 Social Web Analytics — Group 32"
-output: word_document
+output: pdf_document
 ---
 
 **COMP3020 — Social Web Analytics**  
@@ -27,11 +27,9 @@ knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE, fig.pos="H")
 
 ## 2.1 Data Collection
 
-<!-- REQUIRED BEFORE SUBMISSION — Yousuf: insert the actual data-collection and cleaning methods, including source/API, collection dates, packages, variables, raw/cleaned counts, cleaning stages and limitations. The findings section references cleaning_log.rds and bluesky_raw.RData; verify those match the methods here. -->
 
 ## 2.2 Hypothesis Testing
 
-<!-- REQUIRED BEFORE SUBMISSION — Yousuf: insert the actual research question, null/alternative hypotheses, test choice and justification, relevant plot/table, statistical result, conclusion at alpha=0.05, and limitations. Ensure this matches the human/bot chi-square test described in Section 3. -->
 
 ## 2.3 Text/Content Analysis and Visualisation
 
@@ -766,4 +764,4 @@ Taken together, the four analyses describe a cybersecurity discussion on Bluesky
 **GitHub repository:** [Group 32 — COMP3020 project](https://github.com/Yousuf963/comp3020-group32)
 
 
-The repository is intended to provide the R Markdown source files, analysis scripts, and saved datasets used for the project. The data collection and cleaning scripts are referenced as `scripts/Collect.R` and `scripts/Clean.R`. The report uses saved datasets rather than collecting new data when knitted. **Before submission, confirm the link opens without signing in and that the referenced files are present.**
+The repository is intended to provide the R Markdown source files, analysis scripts, and saved datasets used for the project. The data collection and cleaning scripts are referenced as `scripts/Collect.R` and `scripts/Clean.R`. The report uses saved datasets rather than collecting new data when knitted.
