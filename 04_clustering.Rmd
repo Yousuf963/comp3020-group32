@@ -123,10 +123,11 @@ cluster_assignments %>%
 
 ```{r cluster-mds, fig.width=6, fig.height=4.5, fig.cap="Posts projected into two dimensions with classical MDS on the cosine-based distances, coloured by cluster"}
 mds <- cmdscale(dist(X), k = 2)
-plot(mds, col = km$cluster, pch = 19, cex = 0.5,
+plot(mds, col = as.integer(cluster_assignments$cluster), pch = 19, cex = 0.5,
      xlab = "Dimension 1", ylab = "Dimension 2")
 legend("topright", legend = paste("Cluster", 1:k), col = 1:k,
        pch = 19, cex = 0.7)
+        
 ```
 
 ```{r cluster-terms-plot, fig.width=7, fig.height=6, fig.cap="Top words characterising each cluster (mean TF-IDF)"}

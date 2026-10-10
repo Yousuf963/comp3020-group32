@@ -39,11 +39,12 @@ tibble(
 
 This project examines who shapes cybersecurity conversation on Bluesky by analysing posts containing "cybersecurity" or "infosec" and a follow network surrounding a prominent cybersecurity account.
 
-1. **Hypothesis (2.2):** Are posts from automated (bot) accounts less likely to receive engagement than posts from human managed accounts?
 
-2. **Text (2.3):** What are the most frequently discussed topics in cybersecurity-related posts on Bluesky?
+1. **Text (2.3):** What are the most frequently discussed topics in cybersecurity-related posts on Bluesky?
 
-3. **Clustering (2.4):** What groups of similar topics can be identified in cybersecurity-related Bluesky posts?
+2. **Clustering (2.4):** What groups of similar topics can be identified in cybersecurity-related Bluesky posts?
+
+3. **Hypothesis (2.2):** Are posts from automated (bot) accounts less likely to receive engagement than posts from human managed accounts?
 
 4. **Network (2.5):** In the follow network around the most-followed active author in the cybersecurity discussion, which accounts are most central, what kind of accounts are they, and does this network belong to the cybersecurity community?
 
