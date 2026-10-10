@@ -1,8 +1,3 @@
----
-output:
-  pdf_document: default
-  html_document: default
----
 ## 2.5 Network Analysis
 
 ```{r net-setup, include=FALSE}
@@ -32,7 +27,7 @@ ktab <- function(x, ...) {
 
 ### Why a follow network rather than a mention network
 
-The project guide suggested a weighted mention network, in which an edge A → B means that A mentioned B. **This section deliberately deviates from that design**, because our data cannot support a mention network. Only `r sum(posts$n_mentions > 0)` of the `r format(nrow(posts), big.mark = ",")` cleaned posts (`r round(100 * mean(posts$n_mentions > 0), 1)`%) contain a mention, and they contain `r sum(posts$n_mentions)` mentions in total. A mention network would therefore have at most `r sum(posts$n_mentions)` edges spread across a few dozen posts. It would be too small and fragmented to measure centrality in a meaningful way. Bluesky also stores mentions as account IDs (DIDs) rather than handles, so the cleaned data keeps only the mention count. We therefore follow the Module 7 seed-user method and analyse a **follow network**, which the API returns directly. The two networks answer different questions. A mention network shows who talks to whom in cybersecurity posts. A follow network shows whose content an account has chosen to receive. All centrality results below are therefore about follow relationships, not about mention-based conversation.
+A natural choice would be a weighted mention network, in which an edge A → B means that A mentioned B. However, our data cannot support a mention network. Only `r sum(posts$n_mentions > 0)` of the `r format(nrow(posts), big.mark = ",")` cleaned posts (`r round(100 * mean(posts$n_mentions > 0), 1)`%) contain a mention, and they contain `r sum(posts$n_mentions)` mentions in total. A mention network would therefore have at most `r sum(posts$n_mentions)` edges spread across a few dozen posts. It would be too small and fragmented to measure centrality in a meaningful way. Bluesky also stores mentions as account IDs (DIDs) rather than handles, so the cleaned data keeps only the mention count. We therefore follow the Module 7 seed-user method and analyse a **follow network**, which the API returns directly. The two networks answer different questions. A mention network shows who talks to whom in cybersecurity posts. A follow network shows whose content an account has chosen to receive. All centrality results below are therefore about follow relationships, not about mention-based conversation.
 
 ### Building the network
 
@@ -228,7 +223,7 @@ add_legend()
 
 The figure above shows the largest weakly connected component. `r if (comp_weak$no == 1) "Because the network has only one component, this is the whole network." else "The smaller components are not shown."` It has a star-like structure: the seed sits at the centre, and each friend has its own "fan" of followed accounts. Fans overlap only where friends follow the same accounts. With `r format(vcount(gc), big.mark = ",")` nodes, the graph is too dense to read account names, so we also plot a subgraph.
 
-**Subgraph choice.** Following the project guide, we take the **50 accounts with the highest total degree** in the largest weakly connected component, together with the edges among them. At 50 nodes the subgraph is small enough to label. Total degree here mostly measures how many follows we *collected* for an account, so this subgraph highlights the sampled follow activity around the seed. It does not necessarily show the community's most influential accounts. Those are better identified by in-degree (see the in-degree table above).
+**Subgraph choice.** We take the **50 accounts with the highest total degree** in the largest weakly connected component, together with the edges among them. At 50 nodes the subgraph is small enough to label. Total degree here mostly measures how many follows we *collected* for an account, so this subgraph highlights the sampled follow activity around the seed. It does not necessarily show the community's most influential accounts. Those are better identified by in-degree (see the in-degree table above).
 
 ```{r net-sub, echo=FALSE, fig.height=6, fig.width=7, fig.cap="Subgraph of the 50 accounts with the highest total degree in the largest weakly connected component. Node size = in-degree within the full network; red = seed, orange = the seed's friends"}
 deg_gc  <- degree(gc, mode = "all")
@@ -284,7 +279,9 @@ if (has_clusters) {
 }
 ```
 
-`r if (has_clusters) paste0("The table above links the network to the clustering in Section 2.4 by giving each posting network account its most common cluster. ", n_distinct(net_clusters$main_cluster), " different cluster(s) appear among these ", nrow(net_clusters), " accounts. The guide suggested colouring the network nodes by cluster, but cluster labels exist only for accounts that posted, which is ", length(net_authors), " of ", format(vcount(g), big.mark = ","), " nodes. Colouring the plots by cluster would leave more than 99% of nodes uncoloured, so we report this link as a table instead. This is a documented deviation from the guide.") else paste0("The guide suggested colouring network nodes by their most common cluster from Section 2.4. Cluster labels can only exist for accounts that posted, which is ", length(net_authors), " of the ", format(vcount(g), big.mark = ","), " nodes (", round(100 * length(net_authors) / vcount(g), 1), "%), so colouring would leave almost the whole network uncoloured. We therefore mark posting accounts in blue in the network plots instead. This is a documented deviation from the guide: the cluster link can be reported as a table once the Section 2.4 cluster labels are available, but plot colouring would still not be informative.")`
+`r if (has_clusters) paste0("The table above links the network to the clustering in Section 2.4 by giving each posting network account its most common cluster. ", n_distinct(net_clusters$main_cluster), " different cluster(s) appear among these ", nrow(net_clusters), " accounts. Colouring the network nodes by cluster would be a natural way to link the analyses, but cluster labels exist only for accounts that posted, which is ", length(net_authors), " of ", format(vcount(g), big.mark = ","), " nodes. Colouring the plots by cluster would leave more than 99% of nodes uncoloured, so we report this link as a table instead.") else paste0("Colouring network nodes by their most common cluster from Section 2.4 would link the analyses, but cluster labels can only exist for accounts that posted, which is ", length(net_authors), " of the ", format(vcount(g), big.mark = ","), " nodes (", round(100 * length(net_authors) / vcount(g), 1), "%), so colouring would leave almost the whole network uncoloured. We therefore mark posting accounts in blue in the network plots instead.")`
+
+Of the 13 network accounts that posted about cybersecurity, 12 appear in the clustering table. The remaining account, `riziles.bsky.social`, contributed one post, but that post has no cluster assignment (`NA`) in the saved clustering dataset. It was therefore excluded from the cluster summary table, although it remains included in the network analysis.
 
 ### Answer to the research question
 
