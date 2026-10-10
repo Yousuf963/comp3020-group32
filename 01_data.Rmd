@@ -27,7 +27,7 @@ tribble(
 ) %>% kable(caption = "Variables in the cleaned post dataset")
 ```
 
-**Cleaning.** The Table 2 shows how many posts each step removed. There are some Duplicates matched in both queries. Only the posts tagged as English were taken, so the text analysis uses one language. To detect bot accounts, we flagged every handle containing "bot" (13 accounts) and manually reviewed and verified each Bluesky profile: 9 were confirmed bot (automated) accounts (vulnerability alerts, news/RSS feeds and mirror accounts) and removed; 4 were real people and organisations were kept. Finally, posts with fewer than 5 words were removed as too short to analyse.
+**Cleaning.** The Table below shows how many posts each step removed. There are some Duplicates matched in both queries. Only the posts tagged as English were taken, so the text analysis uses one language. To detect bot accounts, we flagged every handle containing "bot" (13 accounts) and manually reviewed and verified each Bluesky profile: 9 were confirmed bot (automated) accounts (vulnerability alerts, news/RSS feeds and mirror accounts) and removed; 4 were real people and organisations were kept. Finally, posts with fewer than 5 words were removed as too short to analyse.
 
 ```{r cleaning-table, echo=FALSE}
 cleaning_log %>% kable(caption = "Posts remaining and removed at each cleaning step")
