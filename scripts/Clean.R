@@ -1,6 +1,6 @@
 # scripts/clean.R
 # Turns data/bluesky_raw.RData into the shared data/posts_clean.rds
-# and records how many posts each step removed (for the report).
+
 
 library(tidyverse)
 
@@ -11,13 +11,13 @@ step1 <- step0 %>% distinct(uri, .keep_all = TRUE)        # same post found by b
 step2 <- step1 %>% filter(map_lgl(langs, ~ "en" %in% unlist(.x)))   # English only
 
 # Remove automated accounts. In the test pull, one vulnerability-alert bot
-# (euvd-bot) wrote ~19% of posts and would dominate word counts and clusters.
-# Step 1: flag every handle containing "bot".
+# (euvd-bot) wrote ~19% of posts 
+#  flag every handle containing "bot".
 bots <- posts_raw %>% distinct(author_handle) %>%
   filter(str_detect(author_handle, "bot")) %>% pull(author_handle)
 
 # Manually reviewed all 13 handles containing "bot" on Bluesky (6 Oct 2026).
-# These 4 are real people/organisations, not automated accounts, so they are kept.
+# These 4 are real people/organisations
 false_positives <- c("ebottcher.bsky.social", "repeatablerobot.bsky.social",
                      "adybot.bsky.social", "progressiverobot.bsky.social")
 bots <- setdiff(bots, false_positives)

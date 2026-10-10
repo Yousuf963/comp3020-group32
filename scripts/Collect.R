@@ -1,23 +1,15 @@
 # scripts/collect.R
 # Bluesky data collection for COMP3020 Group 32
-# Follows the method in the COMP3020 labs:
-#   Module 5 - search_post()/search_skeet() to collect topic posts, saved with save()
-#   Module 7 - seed user + friends-of-friends follow network
-# Run ONCE. The report only loads the saved files and never calls the API.
+#The report only loads the saved files and never calls the API.
 
 library(atrrr)
 library(tidyverse)
+tinytex::install_tinytex()
 
 dir.create("data", showWarnings = FALSE)
 
-# ==== 1. AUTHENTICATE (same as the labs) ====
-# Use a Bluesky APP PASSWORD (Settings > Privacy and security > App passwords),
-# never your normal password. Run once; atrrr saves the token for later sessions.
-# Do NOT push this line with your password filled in to GitHub.
-# auth(user = "<YOUR_HANDLE>.bsky.social", password = "<YOUR_APP_PASSWORD>")
 
-
-# ==== 2. TEST SEARCH (check before the full pull) ====
+# ==== 2. TEST SEARCH ====
 test <- search_post("cybersecurity", sort = "latest", limit = 100)
 
 dim(test)                                   # want about 100 rows
@@ -27,7 +19,7 @@ test$mentions[1:5]                          # what do mentions look like?
 mean(map_int(test$mentions, NROW) > 0)      # share of posts with a mention
 
 
-# ==== 3. FULL PULL: topic posts (Module 5 method) ====
+# ==== 3. FULL PULL: topic posts ====
 queries <- c("cybersecurity", "infosec")
 
 posts_raw <- map(queries, function(q) {
@@ -43,10 +35,10 @@ posts_raw %>% count(query)
 range(posts_raw$indexed_at)                 # time window the posts cover
 
 
-# ==== 4. FOLLOW NETWORK (Module 7 method, scaled up) ====
 # Seed candidates: authors who posted about the topic at least 3 times,
 # so the seed is an active voice in this discussion, not a one-off poster.
 # Automated "bot" accounts are excluded so the seed is a real voice.
+
 active_authors <- posts_raw %>%
   filter(!str_detect(author_handle, "bot")) %>%
   count(author_handle, sort = TRUE) %>%
@@ -55,7 +47,7 @@ active_authors <- posts_raw %>%
 
 author_info <- get_user_info(active_authors)
 
-# Seed = the most-followed active author (same rule as the lab), but only
+# Seed = the most-followed active author, but only
 # among authors who follow at least 30 accounts, so the network has
 # enough branches to be large and connected.
 seed_candidates <- author_info %>% filter(follows_count >= 30)
