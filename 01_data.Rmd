@@ -3,14 +3,14 @@
 ```{r data-setup, include=FALSE}
 library(tidyverse)
 library(knitr)
-load("data/bluesky_raw.RData")          # frozen raw snapshot (collected once)
+load("data/bluesky_raw.RData")          # frozen raw snapshot
 posts        <- readRDS("data/posts_clean.rds")
 cleaning_log <- readRDS("data/cleaning_log.rds")
 ```
 
-**Source and access.** Posts were collected from Bluesky using the `atrrr` package, which accesses the public Bluesky (AT Protocol) API after authenticating with an app password, following the method used in the COMP3020 labs. We searched for the latest posts matching two related queries, `"cybersecurity"` and `"infosec"`, requesting up to 3,000 posts each with `search_post()`. Data were collected once on `r format(collected_at, "%d %B %Y")` and frozen; every result in this report comes from that single snapshot. The collection script is `scripts/Collect.R` in the repository; the report never calls the API.
+**Source and access.** the data (post) were collected from Bluesky using the `atrrr` package, which accesses the public Bluesky (AT Protocol) API after authenticating with an app password. The Query searched for the latest posts related to two queries namely `"cybersecurity"` and `"infosec"`, requesting up to 3,000 posts each with `search_post()`. Data were collected once on `r format(collected_at, "%d %B %Y")` (AEDT) and frozen; The results of this report comes from that single snapshot from Bluesky. The collection script is `scripts/Collect.R` in the repository; the report never calls the API.
 
-**R packages.** `atrrr` (data collection), `tidyverse` (cleaning and wrangling), `knitr` (tables). Later sections use `tm`, `wordcloud` and `igraph`.
+**R packages.** that used in this report: `atrrr` (data collection), `tidyverse` (cleaning and wrangling), `knitr` (tables). Later sections use `tm`, `wordcloud` and `igraph`.
 
 **Volume and time window.** `r nrow(posts_raw)` posts were collected, posted between `r format(min(posts_raw$indexed_at), "%d %b")` and `r format(max(posts_raw$indexed_at), "%d %b %Y")` (UTC).
 
@@ -27,21 +27,21 @@ tribble(
 ) %>% kable(caption = "Variables in the cleaned post dataset")
 ```
 
-**Cleaning.** Table 2 shows how many posts each step removed. Duplicates arose because some posts matched both queries. Only posts tagged as English were kept, so the text analysis uses one language. To find automated accounts, we flagged every handle containing "bot" (13 accounts) and manually reviewed each Bluesky profile: 9 were confirmed automated accounts (vulnerability alerts, news/RSS feeds and mirror accounts) and removed; 4 were real people or organisations and kept. Finally, posts with fewer than 5 words were removed as too short to analyse.
+**Cleaning.** The Table 2 shows how many posts each step removed. There are some Duplicates matched in both queries. Only the posts tagged as English were taken, so the text analysis uses one language. To detect bot accounts, we flagged every handle containing "bot" (13 accounts) and manually reviewed and verified each Bluesky profile: 9 were confirmed bot (automated) accounts (vulnerability alerts, news/RSS feeds and mirror accounts) and removed; 4 were real people and organisations were kept. Finally, posts with fewer than 5 words were removed as too short to analyse.
 
 ```{r cleaning-table, echo=FALSE}
 cleaning_log %>% kable(caption = "Posts remaining and removed at each cleaning step")
 ```
 
-The final dataset contains **`r nrow(posts)` posts from `r n_distinct(posts$author)` authors**. Notably, the 9 bot accounts wrote `r cleaning_log$removed[4]` of the `r cleaning_log$posts[3]` English posts (`r round(100 * cleaning_log$removed[4] / cleaning_log$posts[3])`%), which motivates the hypothesis test in Section 2.2.
+The final dataset contains **`r nrow(posts)` posts from `r n_distinct(posts$author)` authors**. Notably, bot accounts wrote `r cleaning_log$removed[4]` of the `r cleaning_log$posts[3]` English posts (`r round(100 * cleaning_log$removed[4] / cleaning_log$posts[3])`%), almost all of them from a single vulnerability-alert feed (euvd-bot), which motivates the hypothesis test in Section 2.2.
 
-**Follow network.** Following the Module 7 method, we selected a seed user from the topic's authors: among authors who posted at least 3 times (excluding bots) and follow at least 30 accounts, the seed is the one with the most followers (`r seed_user_handle`). We collected the accounts the seed follows (`r length(friends_handles)` direct friends) and up to 50 accounts followed by each friend, giving `r nrow(el_follow)` directed "follows" edges. `r length(failed_friends)` retrievals failed.
+**Follow network.**  A seed user has selected in the process from the topic's authors : among authors who posted at least 3 times (excluding bots) and follow at least 30 accounts, the seed is the one with the most followers (`r seed_user_handle`). These filters ensures the seed is the most-followed author so that it justifies an active voice in the cybersecurity conversation rather than an automated feed, and follows enough accounts to build a usable network; the most-followed author overall followed only a handful of accounts. The query retrieved `r length(friends_handles)` of the `r author_info$follows_count[author_info$actor_handle == seed_user_handle]` accounts the seed follows, and for each of these, the accounts they follow (between `r min(lengths(more_friends_handles))` and `r max(lengths(more_friends_handles))` per friend, as returned by the API), giving `r nrow(el_follow)` directed "follows" edges. `r length(failed_friends)` retrievals failed.
 
 **Limitations.**
 
-- *Sample:* search returns the most recent matching posts, so the data cover only about five days and reflect that week's news.
-- *Keyword search:* posts about cybersecurity that do not use either keyword are missed, and some matching posts may be off-topic.
-- *Language filter:* posts not tagged as English were removed, so non-English discussion is excluded.
+- *Sample:* The search query only returns the most recent posts, therefore, the data only covers five days and reflect that week's news.
+- *Keyword search:* posts related to cybersecurity that do not use keywords are missed, and some matching posts are irrelevant and off topic.
+- *Language filter:* posts that are not in English language were removed, Only English posts are included.
 - *Bot detection:* bots were identified by handle and manual review only; automated accounts without "bot" in the handle may remain.
 - *Engagement counts* were recorded at collection time, so the newest posts had less time to gather likes.
-- *Network:* the follow network is a two-step sample around one seed with capped limits, not the full Bluesky network. Mentions were too rare (about 3% of posts) to build a mention network.
+- *Network:* the follow network is a two-step sample around one seed with capped limits, not the full Bluesky network. Mentions were only 3% of the posts very less to build a mention network.

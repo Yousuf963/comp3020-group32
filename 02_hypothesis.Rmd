@@ -6,11 +6,11 @@ library(knitr)
 load("data/bluesky_raw.RData")
 ```
 
-**Research question.** *Are posts from human accounts more likely to receive engagement than posts from automated (bot) accounts?*
+**Research question.** *Are posts from automated (bot) accounts less likely to receive engagement than posts from human managed accounts?*
 
-Section 2.1 showed that bots produce over half of the English cybersecurity posts. This test asks whether that volume translates into attention from other users.
+The data findings at Section 2.1 showed that automated account(bots) produce over half of the English cybersecurity posts. This test examines whether that volume helps graving more attention from the users or not.
 
-We use the English posts **before** bot removal, applying the same duplicate, language and length filters as the cleaned data, and label each post by account type.
+The process used English posts **before** bot removal, applying the same duplicate, language and length filters as the cleaned data, and label each post by account type.
 
 ```{r hyp-data}
 # Same bot list as scripts/Clean.R (13 flagged handles, 4 manually kept as real accounts)
@@ -18,6 +18,8 @@ flagged <- unique(posts_raw$author_handle[str_detect(posts_raw$author_handle, "b
 kept    <- c("ebottcher.bsky.social", "repeatablerobot.bsky.social",
              "adybot.bsky.social", "progressiverobot.bsky.social")
 bots    <- setdiff(flagged, kept)
+
+
 
 hyp <- posts_raw %>%
   distinct(uri, .keep_all = TRUE) %>%
@@ -28,9 +30,19 @@ hyp <- posts_raw %>%
                                 "Engaged", "No engagement")) %>%
   filter(n_words >= 5)
 
+
 tab <- table(hyp$account_type, hyp$engaged)
 tab
 round(prop.table(tab, margin = 1), 3)      # proportion engaged within each group
+
+
+```
+```{r hyp-bots}
+hyp %>% filter(account_type == "Bot") %>%
+  group_by(author_handle) %>%
+  summarise(posts = n(), share_engaged = round(mean(engaged == "Engaged"), 3)) %>%
+  arrange(desc(posts)) %>%
+  kable(caption = "Posts and engagement for each bot account")
 ```
 
 ```{r hyp-plot, fig.height=3, fig.width=5, fig.cap="Share of posts receiving any engagement, by account type"}
@@ -49,14 +61,15 @@ hyp %>%
 - H0: account type and receiving engagement are independent.
 - H1: account type and receiving engagement are associated.
 
-**Why this test.** Both variables are categorical (bot/human; engaged/not), so a chi-squared test of independence is appropriate. Engagement counts are heavily skewed (the median post receives 0 likes), so comparing means with a t-test would be misleading; converting to "any engagement" avoids this. The test requires expected counts of at least 5 in every cell, checked below.
+**Why this test.** Since both variables are categorical (bot/human; engaged/not), therefore, chi-squared test of independence is appropriate. Engagement counts are uneven (the median post receives 0 likes), so comparing means with a t-test would be misleading; converting to "any engagement" avoids this. The test requires expected counts of at least 5 in every cell, checked below. Following the randomisation approach, the p-value is simulated: account type and engagement are shuffled 2,000 times to break any dependency, and the observed statistic is compared with the shuffled values.
 
 ```{r hyp-test}
-test <- chisq.test(tab)
+set.seed(3020)                                   # makes the simulation reproducible
+test <- chisq.test(tab, simulate.p.value = TRUE, B = 2000)
 test$expected      # all should be >= 5
 test
 ```
 
-**Result and interpretation.** The chi-squared test of independence gave 	$\chi^2 = 547.67$ with 1 degree of freedom and $p < 2.2 \times 10^{-16}$, which is far below $\alpha = 0.05$, so we reject H0 and conclude that account type and receiving engagement are associated. The proportions show the direction of this association: 56.5% of human posts received at least one like, repost or reply, compared with only 14.5% of bot posts, making human posts roughly four times as likely to receive engagement. Combined with Section 2.1, where bots wrote 53% of English cybersecurity posts, this suggests that automated accounts dominate the volume of the conversation while users mostly direct their attention to human accounts. This is an association rather than a causal effect, since engagement also depends on factors such as follower counts and posting time that the test does not control for.
+**Result and interpretation.** From the observarion of the statistic it can be said that The  ($\chi^2 = 549.55$) was larger than all the shuffled 2,000 values from the tables, giving a simulated p-value of about 0.0005, which is below $\alpha = 0.05$, so we reject H0: means the account type and receiving engagement are associated. 56.5% of posts from the human managed accounts received at least one like, repost or reply, compared with 14.5% of posts from bot accounts. However, the per-account table shows that 1,499 of the 1,514 automated (bot) posts come from a single vulnerability-alert feed, euvd-bot, while the other three automated accounts (bots) posted only 15 times and were mostly engaged. Therefore, the results proves that this high-volume automated feed attracts very little engagement relative to its output, rather than establishing a difference between authomated accounts (bots) and humans in general.
 
-**Limitations.** Posts are not fully independent: a few bot accounts produced many posts each, so the test treats repeated posts from one account as separate observations. Engagement also depends on follower counts and posting time, which this test does not control for, so an association does not show that being a bot *causes* lower engagement.
+**Limitations.** Posts are not entirely independent: the shuffling treats each post as an independent observation, however, one automated account (euvd-bot) contributed 1,499 posts, so the shuffled distribution underestimates the actual variability. Engagement is also influenced by factors follower counts and posting time, which this test does not control for, so the observed association does not show that being a automated account (bot) *causes* lower engagement. Furthermore, bots were identified by handle only, so automated feeds without "bot" in their name (for example cti.fyi, which posted 190 times) included in the comparison group.
