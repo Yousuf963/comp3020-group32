@@ -1,0 +1,70 @@
+---
+title: "Who Shapes Cybersecurity Conversation on Bluesky?"
+subtitle: "Social Web Analytics (COMP3020): Group Project Report"
+output:
+  pdf_document:
+    number_sections: false
+geometry: margin=2cm
+fontsize: 11pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
+                      fig.align = "center", fig.height = 3.5, fig.width = 6)
+options(knitr.kable.NA = "–")
+library(tidyverse)
+library(knitr)
+```
+
+**Group 32**
+
+\vspace{0.5em}
+```{r members, echo=FALSE}
+tibble(
+  `Group member` = c("Yousuf Hossain Munna", "Seemrah Panwala", "Rishikanth Goud Nimmala"),
+   SID            = c("20397249", "22175168", "22170637"), 
+   Contribution   = c("40%", "30%", "30%"),
+  `Main sections` = c("2.1 Data collection, 2.2 Hypothesis testing, Report assembly & Github",
+                      "2.3 Text analysis, 2.4 Clustering",
+                      "2.5 Network analysis, Poster")
+) %>% kable (format = "latex", booktabs = TRUE,
+            align = c("l", "l", "c", "p{7cm}"))
+
+```
+\vspace{1em}
+
+**Code and data repository:** <https://github.com/Yousuf963/comp3020-group32>
+
+# 1 Research Questions
+
+This project examines who shapes cybersecurity conversation on Bluesky by analysing posts containing "cybersecurity" or "infosec" and a follow network surrounding a prominent cybersecurity account.
+
+1. **Hypothesis (2.2):** Are posts from automated (bot) accounts less likely to receive engagement than posts from human managed accounts?
+
+2. **Text (2.3):** What are the most frequently discussed topics in cybersecurity-related posts on Bluesky?
+
+3. **Clustering (2.4):** What groups of similar topics can be identified in cybersecurity-related Bluesky posts?
+
+4. **Network (2.5):** In the follow network around the most-followed active author in the cybersecurity discussion, which accounts are most central, what kind of accounts are they, and does this network belong to the cybersecurity community?
+
+# 2 Analyses
+
+```{r child = "01_data.Rmd"}
+```
+
+```{r child = "02_hypothesis.Rmd"}
+```
+
+```{r child = "03_text.Rmd", eval = file.exists("03_text.Rmd")}
+```
+
+```{r child = "04_clustering.Rmd", eval = file.exists("04_clustering.Rmd")}
+```
+
+```{r child = "05_network.Rmd", eval = file.exists("05_network.Rmd")}
+```
+
+# 3 Overall Findings
+
+```{r child = "06_findings.Rmd", eval = file.exists("06_findings.Rmd")}
+```
